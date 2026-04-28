@@ -98,25 +98,6 @@ void validate_dataset_compatibility_with_architecture(const LayerList &architect
     );
 }
 
-void validate_dataset_manifest_consistency(const std::vector<std::string> &expected_manifest, const std::vector<std::string> &runtime_manifest){
-    if(expected_manifest.empty()){
-        return;
-    }
-
-    require_condition(
-        expected_manifest.size() == runtime_manifest.size(),
-        "Il dataset caricato non corrisponde al manifest salvato nello snapshot (numero file differente)"
-    );
-
-    for(std::size_t index = 0; index < expected_manifest.size(); index++){
-        if(expected_manifest[index] != runtime_manifest[index]){
-            throw std::invalid_argument(
-                "Il dataset caricato non corrisponde al manifest salvato nello snapshot (ordine o file differente all'indice " + std::to_string(index) + ")"
-            );
-        }
-    }
-}
-
 void validate_class_names_consistency(const std::vector<std::string> &snapshot_class_names, const std::vector<std::string> &runtime_class_names){
     if(runtime_class_names.empty()){
         return;
@@ -154,20 +135,6 @@ std::string build_resume_model_name(const std::string &snapshot_model_name){
     return base_name + marker + std::to_string(resume_round);
 }
 
-int choose_mode(){
-    int mode = 0;
-    do{
-        std::cout << "Selezionare modalita': 1=Training 2=Inference" << std::endl;
-        std::cin >> mode;
-        if(!std::cin.good() || (mode != 1 && mode != 2)){
-            std::cout << "Scelta non valida." << std::endl;
-            std::cin.clear();
-            std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-        }
-    } while(!std::cin.good() || (mode != 1 && mode != 2));
-    return mode;
-}
-
 void run_training_mode(){
     const int training_mode_choice = read_bounded_int("Scegliere la modalita' di training: 1=Nuovo training 2=Resume da training snapshot", 1, 2);
 
@@ -192,17 +159,25 @@ void run_training_mode(){
         // Consuma il newline residuo lasciato da operator>> prima di usare getline in get_example.
         std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
 
-        int dim_input[3] = {0, 0, 0};
+        int dim_input[3] = {
+            architecture[0].dim_layer[0],
+            architecture[0].dim_layer[1],
+            architecture[0].dim_layer[2]
+        };
         int dim_output = 0;
         int num_examples = 0;
         Dataset4D input;
         Dataset4D output;
-        std::vector<std::string> runtime_class_names;
-        std::vector<std::string> dataset_manifest_paths;
-        get_example(dim_input, dim_output, num_examples, input, output, runtime_class_names, &dataset_manifest_paths);
-        validate_dataset_compatibility_with_architecture(architecture, dim_input, dim_output);
-        validate_dataset_manifest_consistency(resume_snapshot.dataset_manifest_paths, dataset_manifest_paths);
-        validate_class_names_consistency(class_names, runtime_class_names);
+        std::vector<std::string> dataset_manifest_paths = resume_snapshot.dataset_manifest_paths;
+        if(!dataset_manifest_paths.empty()){
+            load_examples_from_manifest(dataset_manifest_paths, dim_input, class_names, dim_output, num_examples, input, output);
+            validate_dataset_compatibility_with_architecture(architecture, dim_input, dim_output);
+        } else {
+            std::vector<std::string> runtime_class_names;
+            get_example(dim_input, dim_output, num_examples, input, output, runtime_class_names, &dataset_manifest_paths);
+            validate_dataset_compatibility_with_architecture(architecture, dim_input, dim_output);
+            validate_class_names_consistency(class_names, runtime_class_names);
+        }
 
         const std::string model_name = build_resume_model_name(resume_snapshot.model_name);
         std::cout << "Nome modello resume generato automaticamente: " << model_name << std::endl;
@@ -428,7 +403,7 @@ void run_inference_mode(){
 
 int main(){
     try{
-        const int mode = choose_mode();
+        const int mode = read_bounded_int("Selezionare modalita': 1=Training 2=Inference", 1, 2, "Scelta non valida");
         if(mode == 1){
             run_training_mode();
         }

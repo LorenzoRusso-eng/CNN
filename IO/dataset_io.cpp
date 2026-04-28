@@ -3,6 +3,7 @@
 // Questo file contiene il caricamento del dataset e il mapping classi -> target one-hot.
 
 #include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <iostream>
 #include <limits>
@@ -72,6 +73,54 @@ std::vector<std::string> load_class_names_from_train_dir(const fs::path &train_d
     }
     std::sort(class_names.begin(), class_names.end());
     return class_names;
+}
+
+void load_examples_from_manifest(
+    const std::vector<std::string> &dataset_manifest_paths,
+    const int (&input_shape)[3],
+    const std::vector<std::string> &class_names,
+    int &num_classes,
+    int &examples,
+    Dataset4D &input,
+    Dataset4D &output
+){
+    if(dataset_manifest_paths.empty()){
+        throw std::invalid_argument("Manifest dataset assente nello snapshot");
+    }
+    if(class_names.empty()){
+        throw std::invalid_argument("Classi assenti nello snapshot");
+    }
+
+    num_classes = static_cast<int>(class_names.size());
+    examples = static_cast<int>(dataset_manifest_paths.size());
+    input.resize(examples);
+    output.resize(examples);
+
+    for(int e = 0; e < examples; e++){
+        const fs::path image_path = fs::path(dataset_manifest_paths[static_cast<std::size_t>(e)]).lexically_normal();
+        if(!fs::exists(image_path) || !fs::is_regular_file(image_path)){
+            throw std::invalid_argument("File del manifest non trovato: " + image_path.string());
+        }
+        if(!has_supported_image_extension(image_path)){
+            throw std::invalid_argument("File del manifest con estensione non supportata: " + image_path.string());
+        }
+
+        const std::string class_name = image_path.parent_path().filename().string();
+        const auto class_it = std::find(class_names.begin(), class_names.end(), class_name);
+        if(class_it == class_names.end()){
+            throw std::invalid_argument("Classe del manifest non presente nello snapshot: " + class_name);
+        }
+
+        const int class_index = static_cast<int>(std::distance(class_names.begin(), class_it));
+        input[static_cast<std::size_t>(e)] = load_01scaled_image_tensor(image_path, input_shape[0], input_shape[1], input_shape[2]);
+        output[static_cast<std::size_t>(e)] = make_one_hot_target(class_index, num_classes);
+    }
+
+    std::cout << "Dataset caricato dal manifest dello snapshot" << std::endl;
+    std::cout << "Classi caricate: " << num_classes << std::endl;
+    std::cout << "Esempi caricati: " << examples << std::endl;
+    std::cout << "Dimensione immagini attesa: " << input_shape[0] << "x" << input_shape[1] << std::endl;
+    std::cout << "Canali attesi: " << input_shape[2] << std::endl;
 }
 
 void get_example(
