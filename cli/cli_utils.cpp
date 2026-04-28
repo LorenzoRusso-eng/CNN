@@ -107,14 +107,6 @@ Reduction choose_loss_reduction(){
     return (choice == 1) ? Reduction::Sum : Reduction::Mean;
 }
 
-int choose_training_type(){
-    return read_bounded_int("Scegliere il tipo di training: 1=Batch 2=Mini-batch SGD 3=Online SGD", 1, 3);
-}
-
-int choose_training_method(){
-    return read_bounded_int("Scegliere il metodo di training: 1=Hold-out 2=K-fold cross validation 3=Full_training", 1, 3);
-}
-
 // Selezione di attivazioni e loss
 
 const Activation& choose_hidden_activation(){

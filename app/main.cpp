@@ -286,9 +286,10 @@ void run_training_mode(){
         std::numeric_limits<int>::max(),
         "Inserire un intero maggiore o uguale a 1."
     );
+
     const Decay &learning_rate_decay = choose_learning_rate_decay(learning_rate, num_epochs);
-    training_type = choose_training_type();
-    training_method = choose_training_method();
+    
+    training_type = read_bounded_int("Scegliere il tipo di training: 1=Batch 2=Mini-batch SGD 3=Online SGD", 1, 3);
 
     momentum_choice = read_bounded_int("Usare il momento per accelerare il training? (0 = no, 1 = si)", 0, 1);
     if(momentum_choice){
@@ -298,6 +299,8 @@ void run_training_mode(){
         }
     }
 
+
+    training_method = read_bounded_int("Scegliere il metodo di training: 1=Hold-out 2=K-fold cross validation 3=Full_training", 1, 3);;
     switch(training_method){
     case 1:
         hold_out_ratio = read_bounded_float(
