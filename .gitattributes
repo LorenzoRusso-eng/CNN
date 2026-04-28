@@ -1,0 +1,19 @@
+* text=auto
+
+# Force CRLF on Windows for common source files
+*.cpp text eol=crlf
+*.c text eol=crlf
+*.hpp text eol=crlf
+*.h text eol=crlf
+CMakeLists.txt text eol=crlf
+*.cmake text eol=crlf
+
+# Shell scripts should keep LF
+*.sh text eol=lf
+
+# Treat images and binaries as binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.exe binary
+*.dll binary

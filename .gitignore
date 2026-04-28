@@ -1,0 +1,26 @@
+# Ignore build directories
+/build_make/
+/build_make_probe/
+
+# Build artifacts
+*.o
+*.obj
+*.exe
+*.dll
+*.lib
+*.a
+
+# CMake files and cache
+/CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+compile_commands.json
+
+# IDE and editor
+.vscode/
+*.swp
+*.user
+
+# Logs
+*.log
