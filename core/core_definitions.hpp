@@ -1,0 +1,151 @@
+#pragma once
+
+// Questo file contiene le definizioni base condivise del progetto.
+
+#include <algorithm>
+#include <cstddef>
+#include <cstdint>
+#include <string>
+#include <vector>
+
+// Costanti matematiche
+constexpr long double Pi = 3.14159265358979323846264338327950288L;
+constexpr float PI_F = static_cast<float>(Pi);
+
+// Strutture tensoriali flat
+struct Tensor3D{
+    int height = 0;
+    int width = 0;
+    int channels = 0;
+    std::vector<float> data;
+
+    Tensor3D() = default;
+
+    Tensor3D(int height_in, int width_in, int channels_in, float value = 0.0f)
+        : height(height_in),
+          width(width_in),
+          channels(channels_in),
+          data(
+              static_cast<std::size_t>(height_in) *
+              static_cast<std::size_t>(width_in) *
+              static_cast<std::size_t>(channels_in),
+              value
+          ) {}
+
+    void resize(int height_in, int width_in, int channels_in, float value = 0.0f){
+        height = height_in;
+        width = width_in;
+        channels = channels_in;
+        data.assign(
+            static_cast<std::size_t>(height_in) *
+            static_cast<std::size_t>(width_in) *
+            static_cast<std::size_t>(channels_in),
+            value
+        );
+    }
+
+    void fill(float value){
+        std::fill(data.begin(), data.end(), value);
+    }
+
+    void clear(){
+        height = width = channels = 0;
+        data.clear();
+    }
+
+    int index(int i, int j, int k) const{
+        return (i * width + j) * channels + k;
+    }
+
+    float &at(int i, int j, int k){
+        return data[static_cast<std::size_t>(index(i, j, k))];
+    }
+
+    const float &at(int i, int j, int k) const{
+        return data[static_cast<std::size_t>(index(i, j, k))];
+    }
+};
+
+using Dataset4D = std::vector<Tensor3D>;
+
+struct BatchTensor{
+    int batch_size = 0;
+    int flat_size = 0;
+    std::vector<float> data;
+
+    void resize(int batch_size_in, int flat_size_in, float value = 0.0f){
+        batch_size = batch_size_in;
+        flat_size = flat_size_in;
+        data.assign(static_cast<std::size_t>(batch_size_in) * static_cast<std::size_t>(flat_size_in), value);
+    }
+
+    void clear(){
+        batch_size = 0;
+        flat_size = 0;
+        data.clear();
+    }
+
+    std::size_t index(int batch_index, int flat_index) const{
+        return static_cast<std::size_t>(batch_index) *
+               static_cast<std::size_t>(flat_size) +
+               static_cast<std::size_t>(flat_index);
+    }
+
+    float &at(int batch_index, int flat_index){
+        return data[index(batch_index, flat_index)];
+    }
+
+    const float &at(int batch_index, int flat_index) const{
+        return data[index(batch_index, flat_index)];
+    }
+};
+
+using DenseWeightBuffer = std::vector<std::vector<float>>;
+using DenseBiasBuffer = std::vector<std::vector<float>>;
+using ConvWeightBuffer = std::vector<std::vector<float>>;
+using ConvBiasBuffer = std::vector<std::vector<float>>;
+
+// Buffer usati dal training e dall'ottimizzazione
+struct ParameterBuffer{
+    DenseWeightBuffer dense_weights;
+    DenseBiasBuffer dense_biases;
+    ConvWeightBuffer conv_weights;
+    ConvBiasBuffer conv_biases;
+};
+
+// Tipi applicativi per metriche e report
+struct ClassPerformance{
+    int tp = 0;
+    int fp = 0;
+    int tn = 0;
+    int fn = 0;
+    float precision = 0.0f;
+    float recall = 0.0f;
+    float f1 = 0.0f;
+};
+
+struct TestPerformance{
+    int num_classes = 0;
+    int test_count = 0;
+    int correct = 0;
+    float accuracy = 0.0f;
+    std::vector<std::vector<int>> confusion;
+    std::vector<ClassPerformance> per_class;
+    float macro_precision = 0.0f;
+    float macro_recall = 0.0f;
+    float macro_f1 = 0.0f;
+};
+
+struct TrainingSummary{
+    int epochs_completed = 0;
+    float final_loss = 0.0f;
+    std::vector<double> epoch_times_seconds;
+    double total_training_seconds = 0.0;
+    bool stopped_early = false;
+};
+
+struct TrainingRuntimeState{
+    int completed_epochs = 0;
+    std::int64_t optimizer_steps = 0;
+    ParameterBuffer velocity;
+};
