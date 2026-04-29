@@ -10,6 +10,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(NN_ENABLE_NATIVE_ARCH "Enable -march=native when supported" ON)
 option(NN_ENABLE_LTO "Enable link-time optimization when supported" ON)
+set(NN_BINARY_NAME "NN_op" CACHE STRING "Nome del binario compilato")
 
 add_executable(NN_multithread_batch_optimized
     app/main.cpp
@@ -40,7 +41,7 @@ add_executable(NN_multithread_batch_optimized
     shared/network_globals.cpp
 )
 
-set_target_properties(NN_multithread_batch_optimized PROPERTIES OUTPUT_NAME NN_op)
+set_target_properties(NN_multithread_batch_optimized PROPERTIES OUTPUT_NAME "${NN_BINARY_NAME}")
 
 target_include_directories(NN_multithread_batch_optimized PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
