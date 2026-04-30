@@ -218,6 +218,7 @@ void hold_out(string model_name, int num_examples, int training_type, bool use_n
 }
 
 void k_fold(string model_name, int k_folds, int num_examples, int training_type, bool use_nesterov, LayerList &architecture, int num_layers, const Decay &learning_rate_decay, int num_epochs, float target_loss, const Dataset4D &input, const Dataset4D &output, const Loss &loss, const Activation &hidden_activation, const Activation &output_activation, float momentum, const std::vector<std::string> &class_names){
+    (void)class_names;
     vector<int> train_indices, test_indices;
     LayerList architecture_copy = architecture;
     vector<TrainingSummary> training_summary{};
@@ -269,11 +270,6 @@ void k_fold(string model_name, int k_folds, int num_examples, int training_type,
     const fs::path performance_report_path = "network_performance_report_" + model_name + ".md";
     write_performance_report_k_fold(performance_report_path, report_meta, training_summary, performance, architecture_copy, num_layers);
     cout << "Report performance salvato in: " << performance_report_path << endl;
-
-    const fs::path model_snapshot_path = "trained_model_" + model_name + "_snapshot.txt";
-    save_model_snapshot(architecture, num_layers, model_snapshot_path, class_names, hidden_activation, output_activation);
-    std::cout << "Struttura e pesi salvati in: " << model_snapshot_path << std::endl;
-    std::cout << "Snapshot di training (resume) disabilitato per K-fold in questa versione." << std::endl;
 
 }
 

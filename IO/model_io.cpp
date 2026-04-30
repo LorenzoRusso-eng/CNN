@@ -11,6 +11,8 @@
 #include <limits>
 #include <sstream>
 #include <stdexcept>
+#include <algorithm>
+#include <cctype>
 
 namespace
 {
@@ -29,12 +31,21 @@ namespace
     std::string read_rest_of_line(std::istream &in)
     {
         std::string value;
-        std::getline(in >> std::ws, value);
-        if (!in.good())
+        if(in.peek() == ' '){
+            in.get();
+        }
+        std::getline(in, value);
+        if(!in && value.empty())
         {
             throw std::invalid_argument("Formato snapshot non valido durante la lettura di una riga");
         }
         return value;
+    }
+
+    bool is_blank_string(const std::string &value){
+        return std::all_of(value.begin(), value.end(), [](unsigned char ch){
+            return std::isspace(ch) != 0;
+        });
     }
 
     void read_dense_params(std::istream &in, Layer &layer)
@@ -314,26 +325,6 @@ namespace
         out << header_token << " " << values.size() << std::endl;
         for(std::size_t index = 0; index < values.size(); index++){
             out << entry_token << " " << index << " " << values[index] << std::endl;
-        }
-    }
-
-    void read_string_vector(std::istream &in, const std::string &header_token, const std::string &entry_token, std::vector<std::string> &values){
-        expect_token(in, header_token);
-        std::size_t count = 0;
-        in >> count;
-        if(!in.good()){
-            throw std::invalid_argument("Formato training snapshot non valido durante la lettura di " + header_token);
-        }
-
-        values.assign(count, "");
-        for(std::size_t i = 0; i < count; i++){
-            expect_token(in, entry_token);
-            std::size_t entry_index = 0;
-            in >> entry_index;
-            if(!in.good() || entry_index >= count){
-                throw std::invalid_argument("Formato training snapshot non valido: indice non valido in " + entry_token);
-            }
-            values[entry_index] = read_rest_of_line(in);
         }
     }
 
@@ -670,6 +661,9 @@ void load_training_snapshot(const fs::path &file_path, LayerList &architecture, 
 
     expect_token(in, "model_name");
     metadata.model_name = read_rest_of_line(in);
+    if(is_blank_string(metadata.model_name)){
+        throw std::invalid_argument("Formato training snapshot non valido: model_name vuoto");
+    }
 
     expect_token(in, "training_method");
     in >> metadata.training_method;

@@ -10,7 +10,28 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(NN_ENABLE_NATIVE_ARCH "Enable -march=native when supported" ON)
 option(NN_ENABLE_LTO "Enable link-time optimization when supported" ON)
+option(NN_ENABLE_WARNINGS "Enable useful compiler warnings" ON)
+option(NN_ENABLE_MSVC_AVX2 "Enable /arch:AVX2 with MSVC" ON)
+set(NN_OPENBLAS_NUM_THREADS "1" CACHE STRING "Numero di thread OpenBLAS da impostare a runtime")
 set(NN_BINARY_NAME "NN_op" CACHE STRING "Nome del binario compilato")
+set(NN_OPENBLAS_ROOT "D:/Project/OpenBLAS-install-mt" CACHE PATH "Root dell'installazione OpenBLAS")
+
+if(NOT NN_OPENBLAS_NUM_THREADS MATCHES "^[0-9]+$")
+    message(FATAL_ERROR "NN_OPENBLAS_NUM_THREADS deve essere un intero non negativo")
+endif()
+
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND NN_ENABLE_LTO)
+    get_filename_component(NN_COMPILER_DIR "${CMAKE_CXX_COMPILER}" DIRECTORY)
+    find_program(NN_GCC_AR NAMES gcc-ar PATHS "${NN_COMPILER_DIR}" NO_DEFAULT_PATH)
+    find_program(NN_GCC_RANLIB NAMES gcc-ranlib PATHS "${NN_COMPILER_DIR}" NO_DEFAULT_PATH)
+
+    if(NN_GCC_AR)
+        set(CMAKE_AR "${NN_GCC_AR}" CACHE FILEPATH "GNU archiver with LTO plugin support" FORCE)
+    endif()
+    if(NN_GCC_RANLIB)
+        set(CMAKE_RANLIB "${NN_GCC_RANLIB}" CACHE FILEPATH "GNU ranlib with LTO plugin support" FORCE)
+    endif()
+endif()
 
 add_executable(NN_multithread_batch_optimized
     app/main.cpp
@@ -44,53 +65,47 @@ add_executable(NN_multithread_batch_optimized
 set_target_properties(NN_multithread_batch_optimized PROPERTIES OUTPUT_NAME "${NN_BINARY_NAME}")
 
 target_include_directories(NN_multithread_batch_optimized PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_compile_definitions(NN_multithread_batch_optimized PRIVATE NN_OPENBLAS_NUM_THREADS=${NN_OPENBLAS_NUM_THREADS})
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    if(NN_ENABLE_WARNINGS)
+        target_compile_options(NN_multithread_batch_optimized PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+
     if(NN_ENABLE_NATIVE_ARCH)
         target_compile_options(NN_multithread_batch_optimized PRIVATE -march=native)
     endif()
 
     if(NN_ENABLE_LTO)
-        target_compile_options(NN_multithread_batch_optimized PRIVATE -flto)
-        target_link_options(NN_multithread_batch_optimized PRIVATE -flto)
+        target_compile_options(NN_multithread_batch_optimized PRIVATE -flto=auto)
+        target_link_options(NN_multithread_batch_optimized PRIVATE -flto=auto)
     endif()
 endif()
 
-set(NN_OPENBLAS_ROOT "D:/Project/OpenBLAS-install-mt" CACHE PATH "Root dell'installazione OpenBLAS")
+if(MSVC)
+    if(NN_ENABLE_WARNINGS)
+        target_compile_options(NN_multithread_batch_optimized PRIVATE /W4 /permissive-)
+    endif()
 
-find_path(NN_OPENBLAS_INCLUDE_DIR
-    NAMES openblas/cblas.h
-    PATHS
-        "${NN_OPENBLAS_ROOT}"
-        "${NN_OPENBLAS_ROOT}/include"
-    NO_DEFAULT_PATH
-)
+    if(NN_ENABLE_MSVC_AVX2)
+        target_compile_options(NN_multithread_batch_optimized PRIVATE /arch:AVX2)
+    endif()
 
-find_package(OpenMP)
-if(OpenMP_CXX_FOUND)
-    target_link_libraries(NN_multithread_batch_optimized PRIVATE OpenMP::OpenMP_CXX)
+    if(NN_ENABLE_LTO)
+        target_compile_options(NN_multithread_batch_optimized PRIVATE $<$<CONFIG:Release>:/GL>)
+        target_link_options(NN_multithread_batch_optimized PRIVATE $<$<CONFIG:Release>:/LTCG>)
+    endif()
 endif()
 
-find_library(NN_OPENBLAS_LIBRARY
-    NAMES openblas libopenblas
-    PATHS
-        "${NN_OPENBLAS_ROOT}"
-        "${NN_OPENBLAS_ROOT}/lib"
-        "${NN_OPENBLAS_ROOT}/lib64"
-    NO_DEFAULT_PATH
-)
+find_package(OpenMP REQUIRED)
+target_link_libraries(NN_multithread_batch_optimized PRIVATE OpenMP::OpenMP_CXX)
 
-if(NOT NN_OPENBLAS_INCLUDE_DIR)
-    message(FATAL_ERROR "Header OpenBLAS non trovato in ${NN_OPENBLAS_ROOT}. Atteso: include/openblas/cblas.h")
-endif()
+find_package(OpenBLAS CONFIG REQUIRED COMPONENTS pthread PATHS "${NN_OPENBLAS_ROOT}" NO_DEFAULT_PATH)
 
-if(NOT NN_OPENBLAS_LIBRARY)
-    message(FATAL_ERROR "Libreria OpenBLAS non trovata in ${NN_OPENBLAS_ROOT}. Attesa in lib/ oppure lib64/")
-endif()
-
-target_include_directories(NN_multithread_batch_optimized PRIVATE "${NN_OPENBLAS_INCLUDE_DIR}")
-target_link_libraries(NN_multithread_batch_optimized PRIVATE ${NN_OPENBLAS_LIBRARY})
+target_include_directories(NN_multithread_batch_optimized PRIVATE "${NN_OPENBLAS_ROOT}/include")
+target_link_libraries(NN_multithread_batch_optimized PRIVATE OpenBLAS::OpenBLAS)
 
 message(STATUS "OpenBLAS trovato:")
-message(STATUS "  include: ${NN_OPENBLAS_INCLUDE_DIR}")
-message(STATUS "  library: ${NN_OPENBLAS_LIBRARY}")
+message(STATUS "  include: ${NN_OPENBLAS_ROOT}/include")
+message(STATUS "  target: OpenBLAS::OpenBLAS")
+message(STATUS "  runtime threads: ${NN_OPENBLAS_NUM_THREADS}")

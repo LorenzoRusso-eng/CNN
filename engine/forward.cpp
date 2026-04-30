@@ -463,6 +463,7 @@ void forward_pooling_layer(const Layer &current, LayerRuntime &current_runtime, 
 }
 
 void forward_flatten_layer(const Layer &current, LayerRuntime &current_runtime, const Layer &previous, const LayerRuntime &previous_runtime, bool enable_parallel){
+    (void)current;
     const auto &previous_output = runtime_output_buffer(previous, previous_runtime);
     auto &output = current_runtime.state.y;
 

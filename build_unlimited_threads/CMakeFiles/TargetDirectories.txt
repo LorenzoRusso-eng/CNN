@@ -1,0 +1,3 @@
+D:/Project/NN_multithread_time/build_unlimited_threads/CMakeFiles/NN_multithread_batch_optimized.dir
+D:/Project/NN_multithread_time/build_unlimited_threads/CMakeFiles/edit_cache.dir
+D:/Project/NN_multithread_time/build_unlimited_threads/CMakeFiles/rebuild_cache.dir

@@ -470,13 +470,13 @@ void backprop_lrn_layer_batch(const Layer &current, BatchLayerRuntime &current_r
 void backprop_softmax_layer_batch(const Layer &current, BatchLayerRuntime &current_runtime, const BatchTensor &desired_output, bool enable_parallel);
 
 void backprop_dense_layer_batch(int layer_index, const Layer &current, BatchLayerRuntime &current_runtime, const Layer &previous, const BatchLayerRuntime &previous_runtime, const Layer *next, const BatchLayerRuntime *next_runtime, ParameterBuffer &gradients, bool is_output, const Loss &loss, const BatchTensor &desired_output, int output_size, const Activation &act, bool enable_parallel, const ParameterBuffer *velocity, float momentum){
+    (void)previous;
     const float *previous_output_data = previous_runtime.y.data.data();
     float *current_delta_data = current_runtime.delta.data.data();
     float *gradient_weight_data = gradients.dense_weights[layer_index].data();
     const int batch_size = current_runtime.y.batch_size;
     const int in_features = current.dense_input_size;
     const int out_features = current.dense_output_size;
-    const int plane = current.dim_layer[1] * current.dim_layer[2];
     const bool use_parallel_dense_delta = enable_parallel && static_cast<std::size_t>(batch_size) * static_cast<std::size_t>(out_features) > 4096;
 
     if(is_output){

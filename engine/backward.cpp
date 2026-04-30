@@ -41,18 +41,12 @@ void build_cost_from_next_dense_all(const Layer &current, const Layer &next, con
 }
 
 void build_cost_from_next_conv_all(const Layer &current, LayerRuntime &current_runtime, const Layer &next, const LayerRuntime &next_runtime, int next_layer_index, const ParameterBuffer *velocity, float momentum, std::vector<float> &out_cost){
-    const int current_height = current.dim_layer[0];
-    const int current_width = current.dim_layer[1];
     const int current_channels = current.dim_layer[2];
     const int next_height = next.dim_layer[0];
     const int next_width = next.dim_layer[1];
     const int next_channels = next.dim_layer[2];
     const int kernel_height = next.kernel_dim[0];
     const int kernel_width = next.kernel_dim[1];
-    const int stride_h = next.stride[0];
-    const int stride_w = next.stride[1];
-    const int padding_h = next.padding[0];
-    const int padding_w = next.padding[1];
     const int in_features = kernel_height * kernel_width * current_channels;
     const int patches = next_height * next_width;
 

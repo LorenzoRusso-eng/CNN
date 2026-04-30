@@ -1,0 +1,1 @@
+ "D:/Project/OpenBLAS-install-mt/lib/libopenblas.a" C:/Strawberry/c/lib/libgomp.dll.a "C:/Strawberry/c/x86_64-w64-mingw32/lib/libmingwthrd.a" -lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32 

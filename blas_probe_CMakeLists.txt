@@ -1,9 +1,11 @@
 cmake_minimum_required(VERSION 3.20)
-project(BlasProbe LANGUAGES C CXX)
-find_package(BLAS)
-if(BLAS_FOUND)
-  message(STATUS "BLAS_FOUND=TRUE")
-  message(STATUS "BLAS_LIBRARIES=${BLAS_LIBRARIES}")
-else()
-  message(STATUS "BLAS_FOUND=FALSE")
-endif()
+project(OpenBLASProbe LANGUAGES C CXX)
+
+set(NN_OPENBLAS_ROOT "D:/Project/OpenBLAS-install-mt" CACHE PATH "Root dell'installazione OpenBLAS")
+
+find_package(OpenBLAS CONFIG REQUIRED COMPONENTS pthread PATHS "${NN_OPENBLAS_ROOT}" NO_DEFAULT_PATH)
+
+message(STATUS "OpenBLAS_FOUND=${OpenBLAS_FOUND}")
+message(STATUS "OpenBLAS_VERSION=${OpenBLAS_VERSION}")
+message(STATUS "OpenBLAS_INCLUDE_DIRS=${OpenBLAS_INCLUDE_DIRS}")
+message(STATUS "OpenBLAS_LIBRARY=${OpenBLAS_LIBRARY}")

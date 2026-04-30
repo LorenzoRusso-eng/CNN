@@ -126,6 +126,7 @@ TrainingSummary train_batch(LayerList &architecture, int num_layers, const Decay
     training_buffers::init_parameter_buffer(architecture, batch_gradients);
     init_or_load_velocity(architecture, velocity, runtime_state);
     const int start_epoch = resolve_start_epoch(runtime_state, num_epochs);
+    executed_epochs = start_epoch;
     std::int64_t optimizer_steps = resolve_optimizer_steps(runtime_state);
 
     for(int e=start_epoch; e<num_epochs; e++){
@@ -159,6 +160,7 @@ TrainingSummary train_batch(LayerList &architecture, int num_layers, const Decay
         epoch_times_seconds.push_back(epoch_seconds);
 
         if(training_progress::update_progress_and_check_stop(loss_value, e, target_loss, last_epoch_loss, executed_epochs)){
+            stopped_early = true;
             break;
         }
     }
@@ -188,6 +190,7 @@ TrainingSummary train_sgd(LayerList &architecture, int num_layers, int batch_siz
     training_buffers::init_parameter_buffer(architecture, batch_gradients);
     init_or_load_velocity(architecture, velocity, runtime_state);
     const int start_epoch = resolve_start_epoch(runtime_state, num_epochs);
+    executed_epochs = start_epoch;
     std::int64_t optimizer_steps = resolve_optimizer_steps(runtime_state);
 
     for(int e=start_epoch; e<num_epochs; e++){
@@ -223,6 +226,7 @@ TrainingSummary train_sgd(LayerList &architecture, int num_layers, int batch_siz
         const double epoch_seconds = elapsed_seconds(epoch_start);
         epoch_times_seconds.push_back(epoch_seconds);
         if(training_progress::update_progress_and_check_stop(loss_value, e, target_loss, last_epoch_loss, executed_epochs)){
+            stopped_early = true;
             break;
         }
     }
@@ -253,6 +257,7 @@ TrainingSummary train_sgd_online(LayerList &architecture, int num_layers, int st
     init_or_load_velocity(architecture, velocity, runtime_state);
     init_runtime_buffers(architecture, runtime);
     const int start_epoch = resolve_start_epoch(runtime_state, num_epochs);
+    executed_epochs = start_epoch;
     std::int64_t optimizer_steps = resolve_optimizer_steps(runtime_state);
 
     for(int e=start_epoch; e<num_epochs; e++){
@@ -293,6 +298,7 @@ TrainingSummary train_sgd_online(LayerList &architecture, int num_layers, int st
 
         const double epoch_seconds = elapsed_seconds(epoch_start);
         epoch_times_seconds.push_back(epoch_seconds);
+        executed_epochs = e + 1;
     }
 
     const double total_training_seconds = elapsed_seconds(training_start);
@@ -320,6 +326,7 @@ TrainingSummary train_batch_nesterov(LayerList &architecture, int num_layers, co
     training_buffers::init_parameter_buffer(architecture, batch_gradients);
     init_or_load_velocity(architecture, velocity, runtime_state);
     const int start_epoch = resolve_start_epoch(runtime_state, num_epochs);
+    executed_epochs = start_epoch;
     std::int64_t optimizer_steps = resolve_optimizer_steps(runtime_state);
 
     for(int e=start_epoch; e<num_epochs; e++){
@@ -353,6 +360,7 @@ TrainingSummary train_batch_nesterov(LayerList &architecture, int num_layers, co
         epoch_times_seconds.push_back(epoch_seconds);
 
         if(training_progress::update_progress_and_check_stop(loss_value, e, target_loss, last_epoch_loss, executed_epochs)){
+            stopped_early = true;
             break;
         }
     }
@@ -382,6 +390,7 @@ TrainingSummary train_sgd_nesterov(LayerList &architecture, int num_layers, int 
     training_buffers::init_parameter_buffer(architecture, batch_gradients);
     init_or_load_velocity(architecture, velocity, runtime_state);
     const int start_epoch = resolve_start_epoch(runtime_state, num_epochs);
+    executed_epochs = start_epoch;
     std::int64_t optimizer_steps = resolve_optimizer_steps(runtime_state);
 
     for(int e=start_epoch; e<num_epochs; e++){
@@ -418,6 +427,7 @@ TrainingSummary train_sgd_nesterov(LayerList &architecture, int num_layers, int 
         const double epoch_seconds = elapsed_seconds(epoch_start);
         epoch_times_seconds.push_back(epoch_seconds);
         if(training_progress::update_progress_and_check_stop(loss_value, e, target_loss, last_epoch_loss, executed_epochs)){
+            stopped_early = true;
             break;
         }
     }
@@ -448,6 +458,7 @@ TrainingSummary train_sgd_online_nesterov(LayerList &architecture, int num_layer
     init_or_load_velocity(architecture, velocity, runtime_state);
     init_runtime_buffers(architecture, runtime);
     const int start_epoch = resolve_start_epoch(runtime_state, num_epochs);
+    executed_epochs = start_epoch;
     std::int64_t optimizer_steps = resolve_optimizer_steps(runtime_state);
 
     for(int e=start_epoch; e<num_epochs; e++){
@@ -489,6 +500,7 @@ TrainingSummary train_sgd_online_nesterov(LayerList &architecture, int num_layer
 
         const double epoch_seconds = elapsed_seconds(epoch_start);
         epoch_times_seconds.push_back(epoch_seconds);
+        executed_epochs = e + 1;
 
 
     }

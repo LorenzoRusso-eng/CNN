@@ -1,6 +1,11 @@
 # Ignore build directories
 /build_make/
 /build_make_probe/
+/build_codex_release/
+/build_verify/
+/build_msvc/
+/build_nmake/
+/test_run/
 
 # Build artifacts
 *.o

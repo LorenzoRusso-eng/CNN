@@ -18,6 +18,7 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include <openblas/cblas.h>
 
 namespace {
 
@@ -135,13 +136,21 @@ std::string build_resume_model_name(const std::string &snapshot_model_name){
     return base_name + marker + std::to_string(resume_round);
 }
 
+bool is_blank_string(const std::string &value){
+    return std::all_of(value.begin(), value.end(), [](unsigned char ch){
+        return std::isspace(ch) != 0;
+    });
+}
+
 void run_training_mode(){
     const int training_mode_choice = read_bounded_int("Scegliere la modalita' di training: 1=Nuovo training 2=Resume da training snapshot", 1, 2);
 
     if(training_mode_choice == 2){
         std::string snapshot_path_str;
         std::cout << "Inserire il percorso del training snapshot completo" << std::endl;
-        std::cin >> snapshot_path_str;
+        std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+        std::getline(std::cin, snapshot_path_str);
+        require_condition(!is_blank_string(snapshot_path_str), "Percorso training snapshot vuoto");
 
         LayerList architecture;
         std::vector<std::string> class_names;
@@ -155,9 +164,6 @@ void run_training_mode(){
             !resume_snapshot.training_finalized,
             "Resume non consentito: lo snapshot e' stato marcato come training finalizzato (stop intra-epoca)."
         );
-
-        // Consuma il newline residuo lasciato da operator>> prima di usare getline in get_example.
-        std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
 
         int dim_input[3] = {
             architecture[0].dim_layer[0],
@@ -256,6 +262,7 @@ void run_training_mode(){
     std::cout << "Inserire il nome del modello" << std::endl;
     std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
     std::getline(std::cin, model_name);
+    require_condition(!is_blank_string(model_name), "Nome modello vuoto");
 
     get_example(dim_input, dim_output, num_examples, input, output, class_names, &dataset_manifest_paths);
 
@@ -358,7 +365,9 @@ void run_training_mode(){
 void run_inference_mode(){
     std::string snapshot_path_str;
     std::cout << "Inserire il percorso del file snapshot della rete" << std::endl;
-    std::cin >> snapshot_path_str;
+    std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+    std::getline(std::cin, snapshot_path_str);
+    require_condition(!is_blank_string(snapshot_path_str), "Percorso snapshot vuoto");
 
     LayerList architecture;
     std::vector<std::string> class_names;
@@ -373,7 +382,8 @@ void run_inference_mode(){
 
     std::string image_path_str;
     std::cout << "Inserire il percorso dell'immagine da classificare" << std::endl;
-    std::cin >> image_path_str;
+    std::getline(std::cin, image_path_str);
+    require_condition(!is_blank_string(image_path_str), "Percorso immagine vuoto");
 
     const Tensor3D image = load_01scaled_image_tensor(image_path_str, input_h, input_w, input_c);
     validate_tensor3d_shape(image, architecture[0].dim_layer, "Inference image");
@@ -406,6 +416,10 @@ void run_inference_mode(){
 
 int main(){
     try{
+        #if defined(NN_OPENBLAS_NUM_THREADS) && NN_OPENBLAS_NUM_THREADS > 0
+        openblas_set_num_threads(NN_OPENBLAS_NUM_THREADS);
+        #endif
+
         const int mode = read_bounded_int("Selezionare modalita': 1=Training 2=Inference", 1, 2, "Scelta non valida");
         if(mode == 1){
             run_training_mode();
