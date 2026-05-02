@@ -44,45 +44,33 @@ struct ConvParameters{
     }
 };
 
-struct LayerState{
-    std::vector<float> a;
-    std::vector<float> y;
-    std::vector<float> delta;
-
-    void clear(){
-        a.clear();
-        y.clear();
-        delta.clear();
-    }
-
-    void resize(std::size_t size, bool allocate_activation = true){
-        if(allocate_activation){
-            a.assign(size, 0.0f);
-        } else {
-            a.clear();
-        }
-        y.assign(size, 0.0f);
-        delta.assign(size, 0.0f);
-    }
-};
-
 struct LayerRuntime{
-    LayerState dense_state;
-    LayerState conv_state;
-    LayerState state;
+    Tensor a;
+    Tensor y;
+    Tensor delta;
     std::vector<int> pooling_argmax;
     std::vector<float> conv_im2col;
     std::vector<float> backprop_cost_from_next;
     std::vector<float> reduction_ones;
 
     void clear(){
-        dense_state.clear();
-        conv_state.clear();
-        state.clear();
+        a.clear();
+        y.clear();
+        delta.clear();
         pooling_argmax.clear();
         conv_im2col.clear();
         backprop_cost_from_next.clear();
         reduction_ones.clear();
+    }
+
+    void resize(const int dim[3], bool allocate_activation = true){
+        if(allocate_activation){
+            a = Tensor(dim[0], dim[1], dim[2], 0.0f);
+        } else {
+            a.clear();
+        }
+        y = Tensor(dim[0], dim[1], dim[2], 0.0f);
+        delta = Tensor(dim[0], dim[1], dim[2], 0.0f);
     }
 };
 
@@ -105,14 +93,14 @@ struct BatchLayerRuntime{
         reduction_ones.clear();
     }
 
-    void resize(int batch_size, int flat_size, bool allocate_activation = true){
+    void resize(int batch_size, const int dim[3], bool allocate_activation = true){
         if(allocate_activation){
-            a.resize(batch_size, flat_size, 0.0f);
+            a = BatchTensor(batch_size, dim[0], dim[1], dim[2], 0.0f);
         } else {
             a.clear();
         }
-        y.resize(batch_size, flat_size, 0.0f);
-        delta.resize(batch_size, flat_size, 0.0f);
+        y = BatchTensor(batch_size, dim[0], dim[1], dim[2], 0.0f);
+        delta = BatchTensor(batch_size, dim[0], dim[1], dim[2], 0.0f);
     }
 };
 
@@ -430,22 +418,22 @@ inline void init_layer_runtime(const Layer &layer, LayerRuntime &runtime){
     runtime.clear();
     switch(layer.type){
         case Layer_type::Dense:
-            runtime.dense_state.resize(static_cast<std::size_t>(layer.dense_output_size));
+            runtime.resize(layer.dim_layer);
             break;
         case Layer_type::Conv:
-            runtime.conv_state.resize(static_cast<std::size_t>(layer.flat_output_size()));
+            runtime.resize(layer.dim_layer);
             break;
         case Layer_type::Input:
         case Layer_type::Pooling:
         case Layer_type::Flatten:
-            runtime.state.resize(static_cast<std::size_t>(layer.flat_output_size()), false);
+            runtime.resize(layer.dim_layer, false);
             if(layer.type == Layer_type::Pooling){
                 runtime.pooling_argmax.assign(static_cast<std::size_t>(layer.flat_output_size()), -1);
             }
             break;
         case Layer_type::LRN:
         case Layer_type::Softmax:
-            runtime.state.resize(static_cast<std::size_t>(layer.flat_output_size()), true);
+            runtime.resize(layer.dim_layer, true);
             break;
     }
 }
@@ -460,11 +448,14 @@ inline void init_runtime_buffers(const LayerList &architecture, RuntimeList &run
 inline void init_batch_layer_runtime(const Layer &layer, BatchLayerRuntime &runtime, int batch_size){
     const int flat_size = layer.flat_output_size();
     const bool needs_activation = !(layer.type == Layer_type::Input || layer.type == Layer_type::Pooling || layer.type == Layer_type::Flatten);
-    const bool shape_changed = (runtime.y.batch_size != batch_size) || (runtime.y.flat_size != flat_size);
+    const bool shape_changed = (runtime.y.batch_size != batch_size) ||
+                               (runtime.y.height != layer.dim_layer[0]) ||
+                               (runtime.y.width != layer.dim_layer[1]) ||
+                               (runtime.y.channels != layer.dim_layer[2]);
 
     if(shape_changed){
         runtime.clear();
-        runtime.resize(batch_size, flat_size, needs_activation);
+        runtime.resize(batch_size, layer.dim_layer, needs_activation);
     }
 
     if(layer.type == Layer_type::Pooling){
@@ -487,51 +478,46 @@ inline void init_batch_runtime_buffers(const LayerList &architecture, BatchRunti
 inline const std::vector<float> &runtime_output_buffer(const Layer &layer, const LayerRuntime &runtime){
     switch(layer.type){
         case Layer_type::Dense:
-            return runtime.dense_state.y;
         case Layer_type::Conv:
-            return runtime.conv_state.y;
         case Layer_type::Input:
         case Layer_type::Pooling:
         case Layer_type::Flatten:
         case Layer_type::LRN:
         case Layer_type::Softmax:
-            return runtime.state.y;
+            return runtime.y.data;
     }
 
-    return runtime.state.y;
+    return runtime.y.data;
 }
 
 inline const std::vector<float> &runtime_activation_buffer(const Layer &layer, const LayerRuntime &runtime){
     switch(layer.type){
         case Layer_type::Dense:
-            return runtime.dense_state.a;
         case Layer_type::Conv:
-            return runtime.conv_state.a;
+            return runtime.a.data;
         case Layer_type::Input:
         case Layer_type::Pooling:
         case Layer_type::Flatten:
-            return runtime.state.y;
+            return runtime.y.data;
         case Layer_type::LRN:
         case Layer_type::Softmax:
-            return runtime.state.a;
+            return runtime.a.data;
     }
 
-    return runtime.state.a;
+    return runtime.a.data;
 }
 
 inline const std::vector<float> &runtime_delta_buffer(const Layer &layer, const LayerRuntime &runtime){
     switch(layer.type){
         case Layer_type::Dense:
-            return runtime.dense_state.delta;
         case Layer_type::Conv:
-            return runtime.conv_state.delta;
         case Layer_type::Input:
         case Layer_type::Pooling:
         case Layer_type::Flatten:
         case Layer_type::LRN:
         case Layer_type::Softmax:
-            return runtime.state.delta;
+            return runtime.delta.data;
     }
 
-    return runtime.state.delta;
+    return runtime.delta.data;
 }

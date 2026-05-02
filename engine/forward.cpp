@@ -32,12 +32,12 @@ void forward_dense_layer(int layer_index, const Layer &current, LayerRuntime &cu
             out_features, in_features,
             1.0f, weight_data, in_features,
             previous_output_data, 1,
-            0.0f, current_runtime.dense_state.a.data(), 1
+            0.0f, current_runtime.a.data.data(), 1
         );
         activation_kernels::dispatch_forward_op(act, [&](const auto &forward_op){
             activation_kernels::apply_bias_activation_buffer(
-                current_runtime.dense_state.a.data(),
-                current_runtime.dense_state.y.data(),
+                current_runtime.a.data.data(),
+                current_runtime.y.data.data(),
                 bias_data,
                 out_features,
                 forward_op
@@ -54,19 +54,19 @@ void forward_dense_layer(int layer_index, const Layer &current, LayerRuntime &cu
         out_features, in_features,
         1.0f, weight_data, in_features,
         previous_output_data, 1,
-        0.0f, current_runtime.dense_state.a.data(), 1
+        0.0f, current_runtime.a.data.data(), 1
     );
     cblas_sgemv(
         CblasRowMajor, CblasNoTrans,
         out_features, in_features,
         momentum, velocity_weight_data, in_features,
         previous_output_data, 1,
-        1.0f, current_runtime.dense_state.a.data(), 1
+        1.0f, current_runtime.a.data.data(), 1
     );
     activation_kernels::dispatch_forward_op(act, [&](const auto &forward_op){
         activation_kernels::apply_lookahead_bias_activation_buffer(
-            current_runtime.dense_state.a.data(),
-            current_runtime.dense_state.y.data(),
+            current_runtime.a.data.data(),
+            current_runtime.y.data.data(),
             bias_data,
             velocity_bias_data,
             momentum,
@@ -92,13 +92,13 @@ void forward_conv_layer(int layer_index, const Layer &current, LayerRuntime &cur
             out_features, num_filters, in_features,
             1.0f, patched_input, out_features,
             filters, in_features,
-            0.0f, current_runtime.conv_state.a.data(), num_filters
+            0.0f, current_runtime.a.data.data(), num_filters
         );
         
         activation_kernels::dispatch_forward_op(act, [&](const auto &forward_op){
             activation_kernels::apply_repeated_bias_activation_buffer(
-                current_runtime.conv_state.a.data(),
-                current_runtime.conv_state.y.data(),
+                current_runtime.a.data.data(),
+                current_runtime.y.data.data(),
                 bias_data,
                 out_features,
                 num_filters,
@@ -116,19 +116,19 @@ void forward_conv_layer(int layer_index, const Layer &current, LayerRuntime &cur
         out_features, num_filters, in_features,
         1.0f, patched_input, out_features,
         filters, in_features,
-        0.0f, current_runtime.conv_state.a.data(), num_filters
+        0.0f, current_runtime.a.data.data(), num_filters
     );
     cblas_sgemm(
         CblasRowMajor, CblasTrans, CblasTrans,
         out_features, num_filters, in_features,
         momentum, patched_input, out_features,
         velocity_filter_data, in_features,
-        1.0f, current_runtime.conv_state.a.data(), num_filters
+        1.0f, current_runtime.a.data.data(), num_filters
     );
     activation_kernels::dispatch_forward_op(act, [&](const auto &forward_op){
         activation_kernels::apply_repeated_lookahead_bias_activation_buffer(
-            current_runtime.conv_state.a.data(),
-            current_runtime.conv_state.y.data(),
+            current_runtime.a.data.data(),
+            current_runtime.y.data.data(),
             bias_data,
             velocity_bias_data,
             momentum,
@@ -162,8 +162,8 @@ void forward_pooling_layer(const Layer &current, LayerRuntime &current_runtime, 
                                            static_cast<std::size_t>(std::max(1, kernel_height * kernel_width));
     const bool use_parallel_pooling = enable_parallel && pooling_work_items > 4096;
 
-    if(current.pooling_type == Pooling_type::Max && current_runtime.pooling_argmax.size() != current_runtime.state.y.size()){
-        current_runtime.pooling_argmax.assign(current_runtime.state.y.size(), -1);
+    if(current.pooling_type == Pooling_type::Max && current_runtime.pooling_argmax.size() != current_runtime.y.data.size()){
+        current_runtime.pooling_argmax.assign(current_runtime.y.data.size(), -1);
     }
 
     switch(current.pooling_type){
@@ -175,7 +175,7 @@ void forward_pooling_layer(const Layer &current, LayerRuntime &current_runtime, 
                         const std::size_t output_base =
                             static_cast<std::size_t>(out_i) * output_row_stride +
                             static_cast<std::size_t>(out_j) * static_cast<std::size_t>(output_channels);
-                        float *y_out = current_runtime.state.y.data() + static_cast<std::ptrdiff_t>(output_base);
+                        float *y_out = current_runtime.y.data.data() + static_cast<std::ptrdiff_t>(output_base);
                         int *argmax_out = current_runtime.pooling_argmax.data() + static_cast<std::ptrdiff_t>(output_base);
                         const int input_origin_i = out_i * stride_h;
                         const int input_origin_j = out_j * stride_w;
@@ -214,7 +214,7 @@ void forward_pooling_layer(const Layer &current, LayerRuntime &current_runtime, 
                         const std::size_t output_base =
                             static_cast<std::size_t>(out_i) * output_row_stride +
                             static_cast<std::size_t>(out_j) * static_cast<std::size_t>(output_channels);
-                        float *y_out = current_runtime.state.y.data() + static_cast<std::ptrdiff_t>(output_base);
+                        float *y_out = current_runtime.y.data.data() + static_cast<std::ptrdiff_t>(output_base);
                         int *argmax_out = current_runtime.pooling_argmax.data() + static_cast<std::ptrdiff_t>(output_base);
                         const int input_origin_i = out_i * stride_h - padding_h;
                         const int input_origin_j = out_j * stride_w - padding_w;
@@ -272,7 +272,7 @@ void forward_pooling_layer(const Layer &current, LayerRuntime &current_runtime, 
                         const std::size_t output_base =
                             static_cast<std::size_t>(out_i) * output_row_stride +
                             static_cast<std::size_t>(out_j) * static_cast<std::size_t>(output_channels);
-                        float *y_out = current_runtime.state.y.data() + static_cast<std::ptrdiff_t>(output_base);
+                        float *y_out = current_runtime.y.data.data() + static_cast<std::ptrdiff_t>(output_base);
                         const int input_origin_i = out_i * stride_h;
                         const int input_origin_j = out_j * stride_w;
 
@@ -312,7 +312,7 @@ void forward_pooling_layer(const Layer &current, LayerRuntime &current_runtime, 
                         const std::size_t output_base =
                             static_cast<std::size_t>(out_i) * output_row_stride +
                             static_cast<std::size_t>(out_j) * static_cast<std::size_t>(output_channels);
-                        float *y_out = current_runtime.state.y.data() + static_cast<std::ptrdiff_t>(output_base);
+                        float *y_out = current_runtime.y.data.data() + static_cast<std::ptrdiff_t>(output_base);
                         const int input_origin_i = out_i * stride_h - padding_h;
                         const int input_origin_j = out_j * stride_w - padding_w;
                         const int kh_begin = std::max(0, -input_origin_i);
@@ -371,7 +371,7 @@ void forward_pooling_layer(const Layer &current, LayerRuntime &current_runtime, 
                         const std::size_t output_base =
                             static_cast<std::size_t>(out_i) * output_row_stride +
                             static_cast<std::size_t>(out_j) * static_cast<std::size_t>(output_channels);
-                        float *y_out = current_runtime.state.y.data() + static_cast<std::ptrdiff_t>(output_base);
+                        float *y_out = current_runtime.y.data.data() + static_cast<std::ptrdiff_t>(output_base);
                         const int input_origin_i = out_i * stride_h;
                         const int input_origin_j = out_j * stride_w;
 
@@ -411,7 +411,7 @@ void forward_pooling_layer(const Layer &current, LayerRuntime &current_runtime, 
                         const std::size_t output_base =
                             static_cast<std::size_t>(out_i) * output_row_stride +
                             static_cast<std::size_t>(out_j) * static_cast<std::size_t>(output_channels);
-                        float *y_out = current_runtime.state.y.data() + static_cast<std::ptrdiff_t>(output_base);
+                        float *y_out = current_runtime.y.data.data() + static_cast<std::ptrdiff_t>(output_base);
                         const int input_origin_i = out_i * stride_h - padding_h;
                         const int input_origin_j = out_j * stride_w - padding_w;
                         const int kh_begin = std::max(0, -input_origin_i);
@@ -465,7 +465,7 @@ void forward_pooling_layer(const Layer &current, LayerRuntime &current_runtime, 
 void forward_flatten_layer(const Layer &current, LayerRuntime &current_runtime, const Layer &previous, const LayerRuntime &previous_runtime, bool enable_parallel){
     (void)current;
     const auto &previous_output = runtime_output_buffer(previous, previous_runtime);
-    auto &output = current_runtime.state.y;
+    auto &output = current_runtime.y.data;
 
     NN_OMP_PARALLEL_FOR_IF(enable_parallel && previous_output.size() > 4096)
     for(int idx = 0; idx < static_cast<int>(previous_output.size()); idx++){
@@ -482,8 +482,8 @@ void forward_lrn_layer(const Layer &current, LayerRuntime &current_runtime, cons
     const float lrn_beta = current.lrn_beta;
     const auto &previous_output = runtime_output_buffer(previous, previous_runtime);
     const float *previous_output_data = previous_output.data();
-    float *current_a = current_runtime.state.a.data();
-    float *current_y = current_runtime.state.y.data();
+    float *current_a = current_runtime.a.data.data();
+    float *current_y = current_runtime.y.data.data();
     const int width = current.dim_layer[1];
     const int channels = current.dim_layer[2];
     const std::size_t row_stride = static_cast<std::size_t>(width) * static_cast<std::size_t>(channels);
@@ -537,8 +537,8 @@ void forward_softmax_layer(const Layer &current, LayerRuntime &current_runtime, 
     const auto &previous_output = runtime_output_buffer(previous, previous_runtime);
     const int output_size = current.flat_output_size();
     const float *src = previous_output.data();
-    float *a_out = current_runtime.state.a.data();
-    float *y_out = current_runtime.state.y.data();
+    float *a_out = current_runtime.a.data.data();
+    float *y_out = current_runtime.y.data.data();
 
     float max_logit = -std::numeric_limits<float>::infinity();
     NN_OMP_SIMD
@@ -571,9 +571,9 @@ void forward_softmax_layer(const Layer &current, LayerRuntime &current_runtime, 
 
 } // namespace
 
-void feed_input(const Tensor3D &input, const Layer &first, LayerRuntime &first_runtime){
-    validate_tensor3d_shape(input, first.dim_layer, "feed_input");
-    std::copy(input.data.begin(), input.data.end(), first_runtime.state.y.begin());
+void feed_input(const Tensor &input, const Layer &first, LayerRuntime &first_runtime){
+    validate_tensor_shape(input, first.dim_layer, "feed_input");
+    std::copy(input.data.begin(), input.data.end(), first_runtime.y.data.begin());
 }
 
 void forwardprop(const LayerList &architecture, RuntimeList &runtime, int num_layers, const Activation &hidden_activation, const Activation &output_activation, ExecutionPolicy policy, const ParameterBuffer *velocity, float momentum){

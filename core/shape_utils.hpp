@@ -17,7 +17,7 @@ inline void require_condition(bool condition, const std::string &message){
     }
 }
 
-inline void validate_tensor3d_shape(const Tensor3D &tensor, const int expected_dim[3], const std::string &context){
+inline void validate_tensor_shape(const Tensor &tensor, const int expected_dim[3], const std::string &context){
     require_condition(tensor.height == expected_dim[0], context + ": dimensione asse 0 incoerente");
     require_condition(tensor.width == expected_dim[1], context + ": dimensione asse 1 incoerente");
     require_condition(tensor.channels == expected_dim[2], context + ": dimensione asse 2 incoerente");

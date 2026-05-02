@@ -319,7 +319,7 @@ void build_cost_from_next_flatten_all_batch(const Layer &current, const Layer &n
     NN_OMP_PARALLEL_FOR_COLLAPSE_IF(2, batch_size * n > 4096)
     for(int batch_idx = 0; batch_idx < batch_size; batch_idx++){
         for(int idx = 0; idx < n; idx++){
-            const std::size_t next_base = static_cast<std::size_t>(batch_idx) * static_cast<std::size_t>(next_flat_size);
+            const std::size_t next_base = next_runtime.delta.index(batch_idx, 0);
             const std::size_t current_base = static_cast<std::size_t>(batch_idx) * static_cast<std::size_t>(current_flat_size);
             out_cost[current_base + static_cast<std::size_t>(idx)] = -next_delta_data[next_base + static_cast<std::size_t>(idx)];
         }
@@ -328,7 +328,6 @@ void build_cost_from_next_flatten_all_batch(const Layer &current, const Layer &n
 
 void build_cost_from_next_lrn_all_batch(const Layer &current, const BatchLayerRuntime &current_runtime, const Layer &next, const BatchLayerRuntime &next_runtime, std::vector<float> &out_cost){
     const int batch_size = current_runtime.y.batch_size;
-    const int current_flat_size = current.flat_output_size();
     const float *current_output_data = current_runtime.y.data.data();
     const float *next_activation_data = next_runtime.a.data.data();
     const float *next_delta_data = next_runtime.delta.data.data();
@@ -349,8 +348,8 @@ void build_cost_from_next_lrn_all_batch(const Layer &current, const BatchLayerRu
     for(int batch_idx = 0; batch_idx < batch_size; batch_idx++){
         for(int i = 0; i < height; i++){
             for(int j = 0; j < width; j++){
-                const std::size_t batch_offset_current = static_cast<std::size_t>(batch_idx) * static_cast<std::size_t>(current_flat_size);
-                const std::size_t batch_offset_next = static_cast<std::size_t>(batch_idx) * static_cast<std::size_t>(next.flat_output_size());
+                const std::size_t batch_offset_current = current_runtime.y.index(batch_idx, 0);
+                const std::size_t batch_offset_next = next_runtime.y.index(batch_idx, 0);
                 const int pixel_base = (i * width + j) * channels;
 
                 for(int k = 0; k < channels; k++){
@@ -411,15 +410,15 @@ void build_cost_from_next_lrn_all_batch(const Layer &current, const BatchLayerRu
 }
 
 void build_cost_from_next_softmax_all_batch(const Layer &current, const Layer &next, const BatchLayerRuntime &next_runtime, std::vector<float> &out_cost){
+    (void)next;
     const int batch_size = next_runtime.y.batch_size;
     const int current_flat_size = current.flat_output_size();
     const float *next_delta_data = next_runtime.delta.data.data();
-    const int next_flat_size = next.flat_output_size();
 
     NN_OMP_PARALLEL_FOR_COLLAPSE_IF(2, batch_size * current_flat_size > 4096)
     for(int batch_idx = 0; batch_idx < batch_size; batch_idx++){
         for(int idx = 0; idx < current_flat_size; idx++){
-            const std::size_t next_base = static_cast<std::size_t>(batch_idx) * static_cast<std::size_t>(next_flat_size);
+            const std::size_t next_base = next_runtime.delta.index(batch_idx, 0);
             const std::size_t current_base = static_cast<std::size_t>(batch_idx) * static_cast<std::size_t>(current_flat_size);
             out_cost[current_base + static_cast<std::size_t>(idx)] = -next_delta_data[next_base + static_cast<std::size_t>(idx)];
         }
@@ -573,11 +572,11 @@ void backprop_conv_layer_batch(int layer_index, const Layer &current, BatchLayer
                     for(int out_i = 0; out_i < out_height; out_i++){
                         for(int out_j = 0; out_j < output_width; out_j++){
                             for(int out_k = 0; out_k < out_channels; out_k++){
-                                const std::size_t output_index = static_cast<std::size_t>(batch_index) * static_cast<std::size_t>(current_flat_size) +
-                                                                 static_cast<std::size_t>((out_i * output_width + out_j) * out_channels + out_k);
+                                const int flat_index = (out_i * output_width + out_j) * out_channels + out_k;
+                                const std::size_t output_index = current_runtime.y.index(batch_index, flat_index);
                                 const float output_value = current_runtime.y.data[output_index];
                                 const float activation_value = current_runtime.a.data[output_index];
-                                const float cost_der = loss_derivative_op(output_value, desired_output.data[output_index]);
+                                const float cost_der = loss_derivative_op(output_value, desired_output.data[desired_output.index(batch_index, flat_index)]);
                                 current_delta_data[output_index] = -cost_der * derivative_op(activation_value);
                             }
                         }
@@ -592,9 +591,9 @@ void backprop_conv_layer_batch(int layer_index, const Layer &current, BatchLayer
 
             NN_OMP_PARALLEL_FOR_IF(use_parallel_conv_hidden_delta)
             for(int batch_index = 0; batch_index < batch_size; batch_index++){
-                const int batch_offset = batch_index * current_flat_size;
+                const std::size_t batch_offset = current_runtime.y.index(batch_index, 0);
                 for(int idx = 0; idx < current_flat_size; idx++){
-                    const std::size_t output_index = static_cast<std::size_t>(batch_offset + idx);
+                    const std::size_t output_index = batch_offset + static_cast<std::size_t>(idx);
                     const float cost_der = cost_from_next[output_index];
                     current_delta_data[output_index] = -cost_der * derivative_op(current_runtime.a.data[output_index]);
                 }
@@ -640,9 +639,10 @@ void backprop_pooling_layer_batch(const Layer &current, BatchLayerRuntime &curre
             NN_OMP_PARALLEL_FOR_COLLAPSE_IF(2, use_parallel_delta)
             for(int batch_index = 0; batch_index < batch_size; batch_index++){
                 for(int idx = 0; idx < flat_size; idx++){
-                    const std::size_t data_index = static_cast<std::size_t>(batch_index) * static_cast<std::size_t>(flat_size) + static_cast<std::size_t>(idx);
+                    const std::size_t data_index = current_runtime.y.index(batch_index, idx);
+                    const std::size_t desired_index = desired_output.index(batch_index, idx);
                     const float output_value = current_runtime.y.data[data_index];
-                    current_runtime.delta.data[data_index] = -loss_derivative_op(output_value, desired_output.data[data_index]);
+                    current_runtime.delta.data[data_index] = -loss_derivative_op(output_value, desired_output.data[desired_index]);
                 }
             }
         });
@@ -655,7 +655,7 @@ void backprop_pooling_layer_batch(const Layer &current, BatchLayerRuntime &curre
     NN_OMP_PARALLEL_FOR_COLLAPSE_IF(2, use_parallel_delta)
     for(int batch_index = 0; batch_index < batch_size; batch_index++){
         for(int idx = 0; idx < flat_size; idx++){
-            const std::size_t data_index = static_cast<std::size_t>(batch_index) * static_cast<std::size_t>(flat_size) + static_cast<std::size_t>(idx);
+            const std::size_t data_index = current_runtime.y.index(batch_index, idx);
             current_runtime.delta.data[data_index] = -cost_from_next[data_index];
         }
     }
@@ -671,9 +671,10 @@ void backprop_flatten_layer_batch(const Layer &current, BatchLayerRuntime &curre
             NN_OMP_PARALLEL_FOR_COLLAPSE_IF(2, use_parallel_delta)
             for(int batch_index = 0; batch_index < batch_size; batch_index++){
                 for(int idx = 0; idx < flat_size; idx++){
-                    const std::size_t data_index = static_cast<std::size_t>(batch_index) * static_cast<std::size_t>(flat_size) + static_cast<std::size_t>(idx);
+                    const std::size_t data_index = current_runtime.y.index(batch_index, idx);
+                    const std::size_t desired_index = desired_output.index(batch_index, idx);
                     const float output_value = current_runtime.y.data[data_index];
-                    current_runtime.delta.data[data_index] = -loss_derivative_op(output_value, desired_output.data[data_index]);
+                    current_runtime.delta.data[data_index] = -loss_derivative_op(output_value, desired_output.data[desired_index]);
                 }
             }
         });
@@ -686,7 +687,7 @@ void backprop_flatten_layer_batch(const Layer &current, BatchLayerRuntime &curre
     NN_OMP_PARALLEL_FOR_COLLAPSE_IF(2, use_parallel_delta)
     for(int batch_index = 0; batch_index < batch_size; batch_index++){
         for(int idx = 0; idx < flat_size; idx++){
-            const std::size_t data_index = static_cast<std::size_t>(batch_index) * static_cast<std::size_t>(flat_size) + static_cast<std::size_t>(idx);
+            const std::size_t data_index = current_runtime.y.index(batch_index, idx);
             current_runtime.delta.data[data_index] = -cost_from_next[data_index];
         }
     }
@@ -702,9 +703,10 @@ void backprop_lrn_layer_batch(const Layer &current, BatchLayerRuntime &current_r
             NN_OMP_PARALLEL_FOR_COLLAPSE_IF(2, use_parallel_delta)
             for(int batch_index = 0; batch_index < batch_size; batch_index++){
                 for(int idx = 0; idx < flat_size; idx++){
-                    const std::size_t data_index = static_cast<std::size_t>(batch_index) * static_cast<std::size_t>(flat_size) + static_cast<std::size_t>(idx);
+                    const std::size_t data_index = current_runtime.y.index(batch_index, idx);
+                    const std::size_t desired_index = desired_output.index(batch_index, idx);
                     const float output_value = current_runtime.y.data[data_index];
-                    current_runtime.delta.data[data_index] = -loss_derivative_op(output_value, desired_output.data[data_index]);
+                    current_runtime.delta.data[data_index] = -loss_derivative_op(output_value, desired_output.data[desired_index]);
                 }
             }
         });
@@ -717,7 +719,7 @@ void backprop_lrn_layer_batch(const Layer &current, BatchLayerRuntime &current_r
     NN_OMP_PARALLEL_FOR_COLLAPSE_IF(2, use_parallel_delta)
     for(int batch_index = 0; batch_index < batch_size; batch_index++){
         for(int idx = 0; idx < flat_size; idx++){
-            const std::size_t data_index = static_cast<std::size_t>(batch_index) * static_cast<std::size_t>(flat_size) + static_cast<std::size_t>(idx);
+            const std::size_t data_index = current_runtime.y.index(batch_index, idx);
             current_runtime.delta.data[data_index] = -cost_from_next[data_index];
         }
     }
@@ -731,8 +733,8 @@ void backprop_softmax_layer_batch(const Layer &current, BatchLayerRuntime &curre
     NN_OMP_PARALLEL_FOR_COLLAPSE_IF(2, use_parallel_delta)
     for(int batch_index = 0; batch_index < batch_size; batch_index++){
         for(int idx = 0; idx < flat_size; idx++){
-            const std::size_t data_index = static_cast<std::size_t>(batch_index) * static_cast<std::size_t>(flat_size) + static_cast<std::size_t>(idx);
-            current_runtime.delta.data[data_index] = desired_output.data[data_index] - current_runtime.y.data[data_index];
+            const std::size_t data_index = current_runtime.y.index(batch_index, idx);
+            current_runtime.delta.data[data_index] = desired_output.data[desired_output.index(batch_index, idx)] - current_runtime.y.data[data_index];
         }
     }
 }

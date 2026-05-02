@@ -13,22 +13,22 @@ constexpr long double Pi = 3.14159265358979323846264338327950288L;
 constexpr float PI_F = static_cast<float>(Pi);
 
 // Strutture tensoriali flat
-struct Tensor3D{
+struct Tensor{
     int height = 0;
     int width = 0;
     int channels = 0;
+    int flat_size = 0;
     std::vector<float> data;
 
-    Tensor3D() = default;
+    Tensor() = default;
 
-    Tensor3D(int height_in, int width_in, int channels_in, float value = 0.0f)
+    Tensor(int height_in, int width_in, int channels_in, float value = 0.0f)
         : height(height_in),
           width(width_in),
           channels(channels_in),
+          flat_size(height_in * width_in * channels_in),
           data(
-              static_cast<std::size_t>(height_in) *
-              static_cast<std::size_t>(width_in) *
-              static_cast<std::size_t>(channels_in),
+              static_cast<std::size_t>(height_in * width_in * channels_in),
               value
           ) {}
 
@@ -36,20 +36,13 @@ struct Tensor3D{
         height = height_in;
         width = width_in;
         channels = channels_in;
-        data.assign(
-            static_cast<std::size_t>(height_in) *
-            static_cast<std::size_t>(width_in) *
-            static_cast<std::size_t>(channels_in),
-            value
-        );
-    }
-
-    void fill(float value){
-        std::fill(data.begin(), data.end(), value);
+        flat_size = height_in * width_in * channels_in;
+        data.assign(static_cast<std::size_t>(flat_size), value);
     }
 
     void clear(){
         height = width = channels = 0;
+        flat_size = 0;
         data.clear();
     }
 
@@ -57,30 +50,46 @@ struct Tensor3D{
         return (i * width + j) * channels + k;
     }
 
-    float &at(int i, int j, int k){
-        return data[static_cast<std::size_t>(index(i, j, k))];
-    }
-
-    const float &at(int i, int j, int k) const{
-        return data[static_cast<std::size_t>(index(i, j, k))];
-    }
 };
 
-using Dataset4D = std::vector<Tensor3D>;
+using Dataset4D = std::vector<Tensor>;
 
 struct BatchTensor{
     int batch_size = 0;
+    int height = 0;
+    int width = 0;
+    int channels = 0;
     int flat_size = 0;
     std::vector<float> data;
 
-    void resize(int batch_size_in, int flat_size_in, float value = 0.0f){
+    BatchTensor() = default;
+
+    BatchTensor(int batch_size_in, int height_in, int width_in, int channels_in, float value = 0.0f)
+        : batch_size(batch_size_in),
+          height(height_in),
+          width(width_in),
+          channels(channels_in),
+          flat_size(height_in * width_in * channels_in),
+          data(
+              static_cast<std::size_t>(batch_size_in) *
+              static_cast<std::size_t>(height_in * width_in * channels_in),
+              value
+          ) {}
+
+    void resize(int batch_size_in, int height_in, int width_in, int channels_in, float value = 0.0f){
         batch_size = batch_size_in;
-        flat_size = flat_size_in;
-        data.assign(static_cast<std::size_t>(batch_size_in) * static_cast<std::size_t>(flat_size_in), value);
+        height = height_in;
+        width = width_in;
+        channels = channels_in;
+        flat_size = height_in * width_in * channels_in;
+        data.assign(static_cast<std::size_t>(batch_size_in) * static_cast<std::size_t>(flat_size), value);
     }
 
     void clear(){
         batch_size = 0;
+        height = 0;
+        width = 0;
+        channels = 0;
         flat_size = 0;
         data.clear();
     }
@@ -91,26 +100,14 @@ struct BatchTensor{
                static_cast<std::size_t>(flat_index);
     }
 
-    float &at(int batch_index, int flat_index){
-        return data[index(batch_index, flat_index)];
-    }
-
-    const float &at(int batch_index, int flat_index) const{
-        return data[index(batch_index, flat_index)];
-    }
 };
-
-using DenseWeightBuffer = std::vector<std::vector<float>>;
-using DenseBiasBuffer = std::vector<std::vector<float>>;
-using ConvWeightBuffer = std::vector<std::vector<float>>;
-using ConvBiasBuffer = std::vector<std::vector<float>>;
 
 // Buffer usati dal training e dall'ottimizzazione
 struct ParameterBuffer{
-    DenseWeightBuffer dense_weights;
-    DenseBiasBuffer dense_biases;
-    ConvWeightBuffer conv_weights;
-    ConvBiasBuffer conv_biases;
+    std::vector<std::vector<float>>; dense_weights;
+    std::vector<std::vector<float>>; dense_biases;
+    std::vector<std::vector<float>>; conv_weights;
+    std::vector<std::vector<float>>; conv_biases;
 };
 
 // Tipi applicativi per metriche e report

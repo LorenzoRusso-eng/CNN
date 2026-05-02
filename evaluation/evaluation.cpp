@@ -18,7 +18,7 @@ int evaluation_chunk_size(int test_count){
 
 } // namespace
 
-int argmax_target(const Tensor3D &target)
+int argmax_target(const Tensor &target)
 {
     int best_index = 0;
     float best_value = target.data[0];
@@ -85,7 +85,7 @@ TestPerformance run_test(LayerList &architecture, int num_layers, const std::vec
 
         for(int batch_index = 0; batch_index < batch_size; batch_index++){
             const int sample_index = test_indices[start + batch_index];
-            const float *sample_output = predicted_output.data.data() + static_cast<std::size_t>(batch_index) * static_cast<std::size_t>(flat_size);
+            const float *sample_output = predicted_output.data.data() + predicted_output.index(batch_index, 0);
             int predicted = 0;
             float best_value = sample_output[0];
             for(int c = 1; c < flat_size; c++){

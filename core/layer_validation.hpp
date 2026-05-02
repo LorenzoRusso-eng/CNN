@@ -156,7 +156,7 @@ inline void validate_dataset_indices_io_shapes(const LayerList &architecture, in
     for(size_t position=0; position<indices.size(); position++){
         const int sample_index = indices[position];
         require_condition(sample_index >= 0 && sample_index < static_cast<int>(input.size()), context + ": indice sample fuori range");
-        validate_tensor3d_shape(input[sample_index], architecture[0].dim_layer, context + " input sample " + std::to_string(sample_index));
-        validate_tensor3d_shape(output[sample_index], architecture[num_layers - 1].dim_layer, context + " output sample " + std::to_string(sample_index));
+        validate_tensor_shape(input[sample_index], architecture[0].dim_layer, context + " input sample " + std::to_string(sample_index));
+        validate_tensor_shape(output[sample_index], architecture[num_layers - 1].dim_layer, context + " output sample " + std::to_string(sample_index));
     }
 }

@@ -385,8 +385,8 @@ void run_inference_mode(){
     std::getline(std::cin, image_path_str);
     require_condition(!is_blank_string(image_path_str), "Percorso immagine vuoto");
 
-    const Tensor3D image = load_01scaled_image_tensor(image_path_str, input_h, input_w, input_c);
-    validate_tensor3d_shape(image, architecture[0].dim_layer, "Inference image");
+    const Tensor image = load_01scaled_image_tensor(image_path_str, input_h, input_w, input_c);
+    validate_tensor_shape(image, architecture[0].dim_layer, "Inference image");
     RuntimeList runtime;
     init_runtime_buffers(architecture, runtime);
     feed_input(image, architecture[0], runtime[0]);

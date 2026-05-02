@@ -232,7 +232,7 @@ struct Loss {
     explicit Loss(LossKind kind_in = LossKind::Simple, Reduction reduction_mode = Reduction::Sum)
         : kind(kind_in), reduction_mode_(reduction_mode) {}
 
-    float fn(const Layer &l, const LayerRuntime &runtime, const Tensor3D &desired_output) const{
+    float fn(const Layer &l, const LayerRuntime &runtime, const Tensor &desired_output) const{
         const auto &output = runtime_output_buffer(l, runtime);
         return loss_kernels::compute_loss_values(*this, output.data(), desired_output.data.data(), l.flat_output_size());
     }
@@ -335,7 +335,10 @@ inline float compute_loss_values(const Loss &loss, const float *output, const fl
 
 inline float compute_loss_batch(const Loss &loss, const BatchLayerRuntime &runtime, const BatchTensor &desired_output){
     require_condition(
-        runtime.y.batch_size == desired_output.batch_size && runtime.y.flat_size == desired_output.flat_size,
+        runtime.y.batch_size == desired_output.batch_size &&
+        runtime.y.height == desired_output.height &&
+        runtime.y.width == desired_output.width &&
+        runtime.y.channels == desired_output.channels,
         "compute_loss_batch: shape del batch incompatibile"
     );
 
@@ -343,10 +346,11 @@ inline float compute_loss_batch(const Loss &loss, const BatchLayerRuntime &runti
 
     dispatch_loss_value_op(loss, [&](const auto &loss_value_op){
         for(int sample_index = 0; sample_index < runtime.y.batch_size; sample_index++){
-            const std::size_t base = static_cast<std::size_t>(sample_index) * static_cast<std::size_t>(runtime.y.flat_size);
+            const std::size_t output_base = runtime.y.index(sample_index, 0);
+            const std::size_t desired_base = desired_output.index(sample_index, 0);
             total_loss += reduce_loss_buffer(
-                runtime.y.data.data() + base,
-                desired_output.data.data() + base,
+                runtime.y.data.data() + output_base,
+                desired_output.data.data() + desired_base,
                 runtime.y.flat_size,
                 loss_value_op,
                 loss.reduction()

@@ -25,7 +25,7 @@ void build_cost_from_next_dense_all(const Layer &current, const Layer &next, con
         CblasRowMajor, CblasTrans,
         next_out_features, next_in_features,
         -1.0f, next.dense_params.weights.data(), next_in_features,
-        next_runtime.dense_state.delta.data(), 1,
+        next_runtime.delta.data.data(), 1,
         0.0f, out_cost.data(), 1
     );
 
@@ -34,7 +34,7 @@ void build_cost_from_next_dense_all(const Layer &current, const Layer &next, con
             CblasRowMajor, CblasTrans,
             next_out_features, next_in_features,
             -momentum, velocity->dense_weights[next_layer_index].data(), next_in_features,
-            next_runtime.dense_state.delta.data(), 1,
+            next_runtime.delta.data.data(), 1,
             1.0f, out_cost.data(), 1
         );
     }
@@ -56,7 +56,7 @@ void build_cost_from_next_conv_all(const Layer &current, LayerRuntime &current_r
     cblas_sgemm(
         CblasRowMajor, CblasNoTrans, CblasNoTrans,
         patches, in_features, next_channels,
-        1.0f, next_runtime.conv_state.delta.data(), next_channels,
+        1.0f, next_runtime.delta.data.data(), next_channels,
         next.conv_params.filters.data(), in_features,
         0.0f, current_runtime.conv_im2col.data(), in_features
     );
@@ -65,7 +65,7 @@ void build_cost_from_next_conv_all(const Layer &current, LayerRuntime &current_r
         cblas_sgemm(
             CblasRowMajor, CblasNoTrans, CblasNoTrans,
             patches, in_features, next_channels,
-            momentum, next_runtime.conv_state.delta.data(), next_channels,
+            momentum, next_runtime.delta.data.data(), next_channels,
             velocity->conv_weights[next_layer_index].data(), in_features,
             1.0f, current_runtime.conv_im2col.data(), in_features
         );
@@ -248,10 +248,10 @@ void build_cost_from_next_pool_all(const Layer &current, const LayerRuntime &cur
 
 void build_cost_from_next_flatten_all(const Layer &current, const LayerRuntime &next_runtime, std::vector<float> &out_cost){
     out_cost.assign(static_cast<std::size_t>(current.flat_output_size()), 0.0f);
-    const int n = std::min(current.flat_output_size(), static_cast<int>(next_runtime.state.delta.size()));
+    const int n = std::min(current.flat_output_size(), static_cast<int>(next_runtime.delta.data.size()));
     NN_OMP_PARALLEL_FOR_IF(n > 4096)
     for(int idx=0; idx<n; idx++){
-        out_cost[static_cast<std::size_t>(idx)] = -next_runtime.state.delta[static_cast<std::size_t>(idx)];
+        out_cost[static_cast<std::size_t>(idx)] = -next_runtime.delta.data[static_cast<std::size_t>(idx)];
     }
 }
 
@@ -334,10 +334,10 @@ void build_cost_from_next_lrn_all(const Layer &current, const LayerRuntime &curr
 
 void build_cost_from_next_softmax_all(const Layer &current, const LayerRuntime &next_runtime, std::vector<float> &out_cost){
     out_cost.assign(static_cast<std::size_t>(current.flat_output_size()), 0.0f);
-    const int n = std::min(current.flat_output_size(), static_cast<int>(next_runtime.state.delta.size()));
+    const int n = std::min(current.flat_output_size(), static_cast<int>(next_runtime.delta.data.size()));
     NN_OMP_PARALLEL_FOR_IF(n > 4096)
     for(int idx=0; idx<n; idx++){
-        out_cost[static_cast<std::size_t>(idx)] = -next_runtime.state.delta[static_cast<std::size_t>(idx)];
+        out_cost[static_cast<std::size_t>(idx)] = -next_runtime.delta.data[static_cast<std::size_t>(idx)];
     }
 }
 
@@ -367,11 +367,11 @@ void build_cost_from_next_layer_all(const Layer &current, LayerRuntime &current_
     }
 }
 
-void backprop_dense_layer(int layer_index, const Layer &current, LayerRuntime &current_runtime, const Layer &previous, const LayerRuntime &previous_runtime, const Layer *next, const LayerRuntime *next_runtime, ParameterBuffer &gradients, bool is_output, const Loss &loss, const Tensor3D &desired_output, int output_size, const Activation &act, bool enable_parallel, const ParameterBuffer *velocity, float momentum){
+void backprop_dense_layer(int layer_index, const Layer &current, LayerRuntime &current_runtime, const Layer &previous, const LayerRuntime &previous_runtime, const Layer *next, const LayerRuntime *next_runtime, ParameterBuffer &gradients, bool is_output, const Loss &loss, const Tensor &desired_output, int output_size, const Activation &act, bool enable_parallel, const ParameterBuffer *velocity, float momentum){
     const auto &previous_output = runtime_output_buffer(previous, previous_runtime);
     const float *previous_output_data = previous_output.data();
     float *gradient_weight_data = gradients.dense_weights[layer_index].data();
-    float *delta_data = current_runtime.dense_state.delta.data();
+    float *delta_data = current_runtime.delta.data.data();
     const int out_features = current.dense_output_size;
     const int in_features = current.dense_input_size;
     const bool use_parallel_dense_delta = enable_parallel && out_features > 4096;
@@ -381,9 +381,9 @@ void backprop_dense_layer(int layer_index, const Layer &current, LayerRuntime &c
             activation_kernels::dispatch_derivative_op(act, [&](const auto &derivative_op){
                 NN_OMP_PARALLEL_FOR_IF(use_parallel_dense_delta)
                 for(int out_idx=0; out_idx<out_features; out_idx++){
-                    const float output_value = current_runtime.dense_state.y[out_idx];
+                    const float output_value = current_runtime.y.data[out_idx];
                     const float cost_der = loss_derivative_op(output_value, desired_output.data[static_cast<std::size_t>(out_idx)]);
-                    const float delta = -cost_der * derivative_op(current_runtime.dense_state.a[out_idx]);
+                    const float delta = -cost_der * derivative_op(current_runtime.a.data[out_idx]);
                     delta_data[out_idx] = delta;
                 }
             });
@@ -396,7 +396,7 @@ void backprop_dense_layer(int layer_index, const Layer &current, LayerRuntime &c
             NN_OMP_PARALLEL_FOR_IF(use_parallel_dense_delta)
             for(int out_idx=0; out_idx<out_features; out_idx++){
                 const float cost_der = cost_from_next[static_cast<std::size_t>(out_idx)];
-                const float delta = -cost_der * derivative_op(current_runtime.dense_state.a[out_idx]);
+                const float delta = -cost_der * derivative_op(current_runtime.a.data[out_idx]);
                 delta_data[out_idx] = delta;
             }
         });
@@ -412,9 +412,9 @@ void backprop_dense_layer(int layer_index, const Layer &current, LayerRuntime &c
     );
 }
 
-void backprop_conv_layer(int layer_index, const Layer &current, LayerRuntime &current_runtime, const Layer &previous, const LayerRuntime &previous_runtime, const Layer *next, const LayerRuntime *next_runtime, ParameterBuffer &gradients, bool is_output, const Loss &loss, const Tensor3D &desired_output, int output_size, const Activation &act, bool enable_parallel, const ParameterBuffer *velocity, float momentum){
+void backprop_conv_layer(int layer_index, const Layer &current, LayerRuntime &current_runtime, const Layer &previous, const LayerRuntime &previous_runtime, const Layer *next, const LayerRuntime *next_runtime, ParameterBuffer &gradients, bool is_output, const Loss &loss, const Tensor &desired_output, int output_size, const Activation &act, bool enable_parallel, const ParameterBuffer *velocity, float momentum){
     float *gradient_weight_data = gradients.conv_weights[layer_index].data();
-    float *delta_data = current_runtime.conv_state.delta.data();
+    float *delta_data = current_runtime.delta.data.data();
     const int out_height = current.dim_layer[0];
     const int output_width = current.dim_layer[1];
     const int out_channels = current.dim_layer[2];
@@ -444,9 +444,12 @@ void backprop_conv_layer(int layer_index, const Layer &current, LayerRuntime &cu
                     for(int out_j=0; out_j<output_width; out_j++){
                         for(int out_k=0; out_k<out_channels; out_k++){
                             const int out_idx = (out_i * output_width + out_j) * out_channels + out_k;
-                            const float output_value = current_runtime.conv_state.y[static_cast<std::size_t>(out_idx)];
-                            const float activation_value = current_runtime.conv_state.a[static_cast<std::size_t>(out_idx)];
-                            const float cost_der = loss_derivative_op(output_value, desired_output.at(out_i, out_j, out_k));
+                            const float output_value = current_runtime.y.data[static_cast<std::size_t>(out_idx)];
+                            const float activation_value = current_runtime.a.data[static_cast<std::size_t>(out_idx)];
+                            const float cost_der = loss_derivative_op(
+                                output_value,
+                                desired_output.data[static_cast<std::size_t>(desired_output.index(out_i, out_j, out_k))]
+                            );
                             const float delta = -cost_der * derivative_op(activation_value);
                             delta_data[out_idx] = delta;
                         }
@@ -458,7 +461,7 @@ void backprop_conv_layer(int layer_index, const Layer &current, LayerRuntime &cu
         activation_kernels::dispatch_derivative_op(act, [&](const auto &derivative_op){
             NN_OMP_PARALLEL_FOR_IF(use_parallel_conv_hidden_delta)
             for(int idx=0; idx<flat_size; idx++){
-                const float activation_value = current_runtime.conv_state.a[static_cast<std::size_t>(idx)];
+                const float activation_value = current_runtime.a.data[static_cast<std::size_t>(idx)];
                 const float cost_der = cost_from_next[static_cast<std::size_t>(idx)];
                 const float delta = -cost_der * derivative_op(activation_value);
                 delta_data[idx] = delta;
@@ -486,10 +489,10 @@ void backprop_conv_layer(int layer_index, const Layer &current, LayerRuntime &cu
     );
 }
 
-void backprop_pooling_layer(const Layer &current, LayerRuntime &current_runtime, const Layer *next, const LayerRuntime *next_runtime, int next_layer_index, bool is_output, const Loss &loss, const Tensor3D &desired_output, int output_size, bool enable_parallel, const ParameterBuffer *velocity, float momentum){
+void backprop_pooling_layer(const Layer &current, LayerRuntime &current_runtime, const Layer *next, const LayerRuntime *next_runtime, int next_layer_index, bool is_output, const Loss &loss, const Tensor &desired_output, int output_size, bool enable_parallel, const ParameterBuffer *velocity, float momentum){
     const int flat_size = current.flat_output_size();
-    float *delta_data = current_runtime.state.delta.data();
-    const float *output_data = current_runtime.state.y.data();
+    float *delta_data = current_runtime.delta.data.data();
+    const float *output_data = current_runtime.y.data.data();
     const bool use_parallel_delta = enable_parallel && flat_size > 4096;
 
     if(is_output){
@@ -513,10 +516,10 @@ void backprop_pooling_layer(const Layer &current, LayerRuntime &current_runtime,
     }
 }
 
-void backprop_flatten_layer(const Layer &current, LayerRuntime &current_runtime, const Layer *next, const LayerRuntime *next_runtime, int next_layer_index, bool is_output, const Loss &loss, const Tensor3D &desired_output, int output_size, bool enable_parallel, const ParameterBuffer *velocity, float momentum){
+void backprop_flatten_layer(const Layer &current, LayerRuntime &current_runtime, const Layer *next, const LayerRuntime *next_runtime, int next_layer_index, bool is_output, const Loss &loss, const Tensor &desired_output, int output_size, bool enable_parallel, const ParameterBuffer *velocity, float momentum){
     const int flat_size = current.flat_output_size();
-    float *delta_data = current_runtime.state.delta.data();
-    const float *output_data = current_runtime.state.y.data();
+    float *delta_data = current_runtime.delta.data.data();
+    const float *output_data = current_runtime.y.data.data();
     const bool use_parallel_delta = enable_parallel && flat_size > 4096;
 
     if(is_output){
@@ -540,10 +543,10 @@ void backprop_flatten_layer(const Layer &current, LayerRuntime &current_runtime,
     }
 }
 
-void backprop_lrn_layer(const Layer &current, LayerRuntime &current_runtime, const Layer *next, const LayerRuntime *next_runtime, int next_layer_index, bool is_output, const Loss &loss, const Tensor3D &desired_output, int output_size, bool enable_parallel, const ParameterBuffer *velocity, float momentum){
+void backprop_lrn_layer(const Layer &current, LayerRuntime &current_runtime, const Layer *next, const LayerRuntime *next_runtime, int next_layer_index, bool is_output, const Loss &loss, const Tensor &desired_output, int output_size, bool enable_parallel, const ParameterBuffer *velocity, float momentum){
     const int flat_size = current.flat_output_size();
-    float *delta_data = current_runtime.state.delta.data();
-    const float *output_data = current_runtime.state.y.data();
+    float *delta_data = current_runtime.delta.data.data();
+    const float *output_data = current_runtime.y.data.data();
     const bool use_parallel_delta = enable_parallel && flat_size > 4096;
 
     if(is_output){
@@ -567,7 +570,7 @@ void backprop_lrn_layer(const Layer &current, LayerRuntime &current_runtime, con
     }
 }
 
-void backprop_softmax_layer(const Layer &current, LayerRuntime &current_runtime, const Layer *next, const LayerRuntime *next_runtime, bool is_output, const Loss &loss, const Tensor3D &desired_output, int output_size, bool enable_parallel){
+void backprop_softmax_layer(const Layer &current, LayerRuntime &current_runtime, const Layer *next, const LayerRuntime *next_runtime, bool is_output, const Loss &loss, const Tensor &desired_output, int output_size, bool enable_parallel){
     (void)next;
     (void)next_runtime;
     (void)is_output;
@@ -576,15 +579,15 @@ void backprop_softmax_layer(const Layer &current, LayerRuntime &current_runtime,
 
     NN_OMP_PARALLEL_FOR_IF(enable_parallel && current.flat_output_size() > 4096)
     for(int idx=0; idx<current.flat_output_size(); idx++){
-        current_runtime.state.delta[static_cast<std::size_t>(idx)] =
+        current_runtime.delta.data[static_cast<std::size_t>(idx)] =
             desired_output.data[static_cast<std::size_t>(idx)] -
-            current_runtime.state.y[static_cast<std::size_t>(idx)];
+            current_runtime.y.data[static_cast<std::size_t>(idx)];
     }
 }
 
 } // namespace
 
-void backprop(const LayerList &architecture, RuntimeList &runtime, int num_layers, ParameterBuffer &gradients, const Loss &loss, float &loss_value, const Tensor3D &desired_output, const Activation &hidden_activation, const Activation &output_activation, ExecutionPolicy policy, const ParameterBuffer *velocity, float momentum){
+void backprop(const LayerList &architecture, RuntimeList &runtime, int num_layers, ParameterBuffer &gradients, const Loss &loss, float &loss_value, const Tensor &desired_output, const Activation &hidden_activation, const Activation &output_activation, ExecutionPolicy policy, const ParameterBuffer *velocity, float momentum){
     const int output_size = architecture[num_layers-1].dim_layer[0] * architecture[num_layers-1].dim_layer[1] * architecture[num_layers-1].dim_layer[2];
     const bool enable_parallel = policy.allows_intra_example_parallelism();
     for(int l=num_layers-1; l>0; l--){

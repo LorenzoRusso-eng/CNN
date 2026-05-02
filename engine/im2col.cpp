@@ -97,7 +97,6 @@ void im2col_batch(const Layer &previous, const Layer &current, const BatchLayerR
     const int in_h = previous.dim_layer[0];
     const int in_w = previous.dim_layer[1];
     const int batch_size = previous_runtime.y.batch_size;
-    const int previous_flat_size = previous.flat_output_size();
     const int patch_size = kernel_h * kernel_w * input_c;
     const int patches_per_sample = out_h * out_w;
     const int total_patches = batch_size * patches_per_sample;
@@ -110,7 +109,7 @@ void im2col_batch(const Layer &previous, const Layer &current, const BatchLayerR
     if(!has_padding){
         NN_OMP_PARALLEL_FOR_IF(work_items > 32)
         for(int batch_index = 0; batch_index < batch_size; batch_index++){
-            const std::size_t batch_input_base = static_cast<std::size_t>(batch_index) * static_cast<std::size_t>(previous_flat_size);
+            const std::size_t batch_input_base = previous_runtime.y.index(batch_index, 0);
 
             for(int out_i = 0; out_i < out_h; out_i++){
                 for(int out_j = 0; out_j < out_w; out_j++){
@@ -148,7 +147,7 @@ void im2col_batch(const Layer &previous, const Layer &current, const BatchLayerR
 
     NN_OMP_PARALLEL_FOR_IF(work_items > 32)
     for(int batch_index = 0; batch_index < batch_size; batch_index++){
-        const std::size_t batch_input_base = static_cast<std::size_t>(batch_index) * static_cast<std::size_t>(previous_flat_size);
+        const std::size_t batch_input_base = previous_runtime.y.index(batch_index, 0);
 
         for(int out_i = 0; out_i < out_h; out_i++){
             for(int out_j = 0; out_j < out_w; out_j++){

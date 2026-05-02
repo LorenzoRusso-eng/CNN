@@ -46,13 +46,13 @@ void fill_target_batch(const Dataset4D &output, const std::vector<int> &indices,
 
     const int batch_size = end - start;
     const int flat_size = last.flat_output_size();
-    target_batch.resize(batch_size, flat_size, 0.0f);
+    target_batch = BatchTensor(batch_size, last.dim_layer[0], last.dim_layer[1], last.dim_layer[2], 0.0f);
 
     NN_OMP_PARALLEL_FOR_IF(batch_size * flat_size > 256)
     for(int batch_index = 0; batch_index < batch_size; batch_index++){
-        const Tensor3D &sample = output[indices[start + batch_index]];
-        validate_tensor3d_shape(sample, last.dim_layer, "fill_target_batch");
-        const std::size_t base = static_cast<std::size_t>(batch_index) * static_cast<std::size_t>(flat_size);
+        const Tensor &sample = output[indices[start + batch_index]];
+        validate_tensor_shape(sample, last.dim_layer, "fill_target_batch");
+        const std::size_t base = target_batch.index(batch_index, 0);
         std::copy(sample.data.begin(), sample.data.end(), target_batch.data.begin() + static_cast<std::ptrdiff_t>(base));
     }
 }

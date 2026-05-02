@@ -52,9 +52,9 @@ std::vector<fs::path> collect_image_files(const fs::path &root_dir){
     return image_files;
 }
 
-Tensor3D make_one_hot_target(int class_index, int num_classes){
-    Tensor3D target(num_classes, 1, 1, 0.0f);
-    target.at(class_index, 0, 0) = 1.0f;
+Tensor make_one_hot_target(int class_index, int num_classes){
+    Tensor target(num_classes, 1, 1, 0.0f);
+    target.data[static_cast<std::size_t>(target.index(class_index, 0, 0))] = 1.0f;
     return target;
 }
 

@@ -21,7 +21,7 @@ void read_image_dimensions(const fs::path &image_path, int &height, int &width, 
 
 } // namespace
 
-Tensor3D load_01scaled_image_tensor(const fs::path &image_path, int expected_height, int expected_width, int expected_channels){
+Tensor load_01scaled_image_tensor(const fs::path &image_path, int expected_height, int expected_width, int expected_channels){
     int width = 0;
     int height = 0;
     int channels = 0;
@@ -36,12 +36,12 @@ Tensor3D load_01scaled_image_tensor(const fs::path &image_path, int expected_hei
         throw std::invalid_argument("Dimensioni immagine non valide per " + image_path.string());
     }
 
-    Tensor3D tensor(expected_height, expected_width, expected_channels, 0.0f);
+    Tensor tensor(expected_height, expected_width, expected_channels, 0.0f);
     for(int i=0; i<expected_height; i++){
         for(int j=0; j<expected_width; j++){
             for(int k=0; k<expected_channels; k++){
                 const int index = (i * expected_width + j) * expected_channels + k;
-                tensor.at(i, j, k) = static_cast<float>(data[index]) / 255.0f;
+                tensor.data[static_cast<std::size_t>(tensor.index(i, j, k))] = static_cast<float>(data[index]) / 255.0f;
             }
         }
     }

@@ -162,8 +162,6 @@ void forward_pooling_layer_batch(const Layer &current, BatchLayerRuntime &curren
     const int stride_w = current.stride[1];
     const int padding_h = current.padding[0];
     const int padding_w = current.padding[1];
-    const int previous_flat_size = previous.flat_output_size();
-    const int current_flat_size = current.flat_output_size();
     const std::size_t input_row_stride = static_cast<std::size_t>(previous_width) * static_cast<std::size_t>(output_channels);
     const bool has_padding = (padding_h != 0) || (padding_w != 0);
     const std::size_t pooling_work_items = static_cast<std::size_t>(batch_size) *
@@ -184,8 +182,8 @@ void forward_pooling_layer_batch(const Layer &current, BatchLayerRuntime &curren
                 for(int batch_index = 0; batch_index < batch_size; batch_index++){
                     for(int out_i = 0; out_i < output_height; out_i++){
                         for(int out_j = 0; out_j < output_width; out_j++){
-                            const std::size_t batch_input_base = static_cast<std::size_t>(batch_index) * static_cast<std::size_t>(previous_flat_size);
-                            const std::size_t batch_output_base = static_cast<std::size_t>(batch_index) * static_cast<std::size_t>(current_flat_size);
+                            const std::size_t batch_input_base = previous_runtime.y.index(batch_index, 0);
+                            const std::size_t batch_output_base = current_runtime.y.index(batch_index, 0);
                             const std::size_t output_index_base = batch_output_base + static_cast<std::size_t>(current.flat_index(out_i, out_j, 0));
                             float *y_out = current_runtime.y.data.data() + static_cast<std::ptrdiff_t>(output_index_base);
                             int *argmax_out = current_runtime.pooling_argmax.data() + static_cast<std::ptrdiff_t>(output_index_base);
@@ -225,8 +223,8 @@ void forward_pooling_layer_batch(const Layer &current, BatchLayerRuntime &curren
                 for(int batch_index = 0; batch_index < batch_size; batch_index++){
                     for(int out_i = 0; out_i < output_height; out_i++){
                         for(int out_j = 0; out_j < output_width; out_j++){
-                            const std::size_t batch_input_base = static_cast<std::size_t>(batch_index) * static_cast<std::size_t>(previous_flat_size);
-                            const std::size_t batch_output_base = static_cast<std::size_t>(batch_index) * static_cast<std::size_t>(current_flat_size);
+                            const std::size_t batch_input_base = previous_runtime.y.index(batch_index, 0);
+                            const std::size_t batch_output_base = current_runtime.y.index(batch_index, 0);
                             const std::size_t output_index_base = batch_output_base + static_cast<std::size_t>(current.flat_index(out_i, out_j, 0));
                             float *y_out = current_runtime.y.data.data() + static_cast<std::ptrdiff_t>(output_index_base);
                             int *argmax_out = current_runtime.pooling_argmax.data() + static_cast<std::ptrdiff_t>(output_index_base);
@@ -285,8 +283,8 @@ void forward_pooling_layer_batch(const Layer &current, BatchLayerRuntime &curren
                 for(int batch_index = 0; batch_index < batch_size; batch_index++){
                     for(int out_i = 0; out_i < output_height; out_i++){
                         for(int out_j = 0; out_j < output_width; out_j++){
-                            const std::size_t batch_input_base = static_cast<std::size_t>(batch_index) * static_cast<std::size_t>(previous_flat_size);
-                            const std::size_t batch_output_base = static_cast<std::size_t>(batch_index) * static_cast<std::size_t>(current_flat_size);
+                            const std::size_t batch_input_base = previous_runtime.y.index(batch_index, 0);
+                            const std::size_t batch_output_base = current_runtime.y.index(batch_index, 0);
                             const std::size_t output_index_base = batch_output_base + static_cast<std::size_t>(current.flat_index(out_i, out_j, 0));
                             float *y_out = current_runtime.y.data.data() + static_cast<std::ptrdiff_t>(output_index_base);
                             const int input_origin_i = out_i * stride_h;
@@ -327,8 +325,8 @@ void forward_pooling_layer_batch(const Layer &current, BatchLayerRuntime &curren
                 for(int batch_index = 0; batch_index < batch_size; batch_index++){
                     for(int out_i = 0; out_i < output_height; out_i++){
                         for(int out_j = 0; out_j < output_width; out_j++){
-                            const std::size_t batch_input_base = static_cast<std::size_t>(batch_index) * static_cast<std::size_t>(previous_flat_size);
-                            const std::size_t batch_output_base = static_cast<std::size_t>(batch_index) * static_cast<std::size_t>(current_flat_size);
+                            const std::size_t batch_input_base = previous_runtime.y.index(batch_index, 0);
+                            const std::size_t batch_output_base = current_runtime.y.index(batch_index, 0);
                             const std::size_t output_index_base = batch_output_base + static_cast<std::size_t>(current.flat_index(out_i, out_j, 0));
                             float *y_out = current_runtime.y.data.data() + static_cast<std::ptrdiff_t>(output_index_base);
                             const int input_origin_i = out_i * stride_h - padding_h;
@@ -388,8 +386,8 @@ void forward_pooling_layer_batch(const Layer &current, BatchLayerRuntime &curren
                 for(int batch_index = 0; batch_index < batch_size; batch_index++){
                     for(int out_i = 0; out_i < output_height; out_i++){
                         for(int out_j = 0; out_j < output_width; out_j++){
-                            const std::size_t batch_input_base = static_cast<std::size_t>(batch_index) * static_cast<std::size_t>(previous_flat_size);
-                            const std::size_t batch_output_base = static_cast<std::size_t>(batch_index) * static_cast<std::size_t>(current_flat_size);
+                            const std::size_t batch_input_base = previous_runtime.y.index(batch_index, 0);
+                            const std::size_t batch_output_base = current_runtime.y.index(batch_index, 0);
                             const std::size_t output_index_base = batch_output_base + static_cast<std::size_t>(current.flat_index(out_i, out_j, 0));
                             float *y_out = current_runtime.y.data.data() + static_cast<std::ptrdiff_t>(output_index_base);
                             const int input_origin_i = out_i * stride_h;
@@ -430,8 +428,8 @@ void forward_pooling_layer_batch(const Layer &current, BatchLayerRuntime &curren
                 for(int batch_index = 0; batch_index < batch_size; batch_index++){
                     for(int out_i = 0; out_i < output_height; out_i++){
                         for(int out_j = 0; out_j < output_width; out_j++){
-                            const std::size_t batch_input_base = static_cast<std::size_t>(batch_index) * static_cast<std::size_t>(previous_flat_size);
-                            const std::size_t batch_output_base = static_cast<std::size_t>(batch_index) * static_cast<std::size_t>(current_flat_size);
+                            const std::size_t batch_input_base = previous_runtime.y.index(batch_index, 0);
+                            const std::size_t batch_output_base = current_runtime.y.index(batch_index, 0);
                             const std::size_t output_index_base = batch_output_base + static_cast<std::size_t>(current.flat_index(out_i, out_j, 0));
                             float *y_out = current_runtime.y.data.data() + static_cast<std::ptrdiff_t>(output_index_base);
                             const int input_origin_i = out_i * stride_h - padding_h;
@@ -500,6 +498,7 @@ void forward_flatten_layer_batch(const Layer &current, BatchLayerRuntime &curren
 }
 
 void forward_lrn_layer_batch(const Layer &current, BatchLayerRuntime &current_runtime, const Layer &previous, const BatchLayerRuntime &previous_runtime, bool enable_parallel){
+    (void)previous;
     const int local_size = std::max(1, current.lrn_local_size);
     const int radius = local_size / 2;
     const float alpha_over_size = current.lrn_alpha / static_cast<float>(local_size);
@@ -509,8 +508,6 @@ void forward_lrn_layer_batch(const Layer &current, BatchLayerRuntime &current_ru
     float *current_a_data = current_runtime.a.data.data();
     float *current_y_data = current_runtime.y.data.data();
     const int batch_size = previous_runtime.y.batch_size;
-    const int previous_flat_size = previous.flat_output_size();
-    const int current_flat_size = current.flat_output_size();
     const int width = current.dim_layer[1];
     const int channels = current.dim_layer[2];
     const std::size_t row_stride = static_cast<std::size_t>(width) * static_cast<std::size_t>(channels);
@@ -526,8 +523,8 @@ void forward_lrn_layer_batch(const Layer &current, BatchLayerRuntime &current_ru
     for(int batch_index = 0; batch_index < batch_size; batch_index++){
         for(int i = 0; i < current.dim_layer[0]; i++){
             for(int j = 0; j < current.dim_layer[1]; j++){
-                const std::size_t batch_input_base = static_cast<std::size_t>(batch_index) * static_cast<std::size_t>(previous_flat_size);
-                const std::size_t batch_output_base = static_cast<std::size_t>(batch_index) * static_cast<std::size_t>(current_flat_size);
+                const std::size_t batch_input_base = previous_runtime.y.index(batch_index, 0);
+                const std::size_t batch_output_base = current_runtime.y.index(batch_index, 0);
                 const std::size_t pixel_offset = static_cast<std::size_t>(i) * row_stride + static_cast<std::size_t>(j) * static_cast<std::size_t>(channels);
                 const float *src = previous_output_data + static_cast<std::ptrdiff_t>(batch_input_base + pixel_offset);
                 float *a_out = current_a_data + static_cast<std::ptrdiff_t>(batch_output_base + pixel_offset);
@@ -641,16 +638,19 @@ void feed_input_batch(const Dataset4D &input, const std::vector<int> &indices, i
 
     const int batch_size = end - start;
     const int flat_size = first.flat_output_size();
-    if(first_runtime.y.batch_size != batch_size || first_runtime.y.flat_size != flat_size){
-        const bool needs_activation = !(first.type == Layer_type::Input || first.type == Layer_type::Pooling || first.type == Layer_type::Flatten);
-        first_runtime.resize(batch_size, flat_size, needs_activation);
+    if(first_runtime.y.batch_size != batch_size ||
+       first_runtime.y.height != first.dim_layer[0] ||
+       first_runtime.y.width != first.dim_layer[1] ||
+       first_runtime.y.channels != first.dim_layer[2]){
+       const bool needs_activation = !(first.type == Layer_type::Input || first.type == Layer_type::Pooling || first.type == Layer_type::Flatten);
+        first_runtime.resize(batch_size, first.dim_layer, needs_activation);
     }
 
     NN_OMP_PARALLEL_FOR_IF(batch_size * flat_size > 256)
     for(int batch_index = 0; batch_index < batch_size; batch_index++){
-        const Tensor3D &sample = input[indices[start + batch_index]];
-        validate_tensor3d_shape(sample, first.dim_layer, "feed_input_batch");
-        const std::size_t base = static_cast<std::size_t>(batch_index) * static_cast<std::size_t>(flat_size);
+        const Tensor &sample = input[indices[start + batch_index]];
+        validate_tensor_shape(sample, first.dim_layer, "feed_input_batch");
+        const std::size_t base = first_runtime.y.index(batch_index, 0);
         std::copy(sample.data.begin(), sample.data.end(), first_runtime.y.data.begin() + static_cast<std::ptrdiff_t>(base));
     }
 }

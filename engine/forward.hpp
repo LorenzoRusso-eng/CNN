@@ -7,7 +7,7 @@
 #include "math/activations.hpp"
 #include "shared/execution_policy.hpp"
 
-void feed_input(const Tensor3D &input, const Layer &first, LayerRuntime &first_runtime);
+void feed_input(const Tensor &input, const Layer &first, LayerRuntime &first_runtime);
 void feed_input_batch(const Dataset4D &input, const std::vector<int> &indices, int start, int end, const Layer &first, BatchLayerRuntime &first_runtime);
 
 void forwardprop(const LayerList &architecture, RuntimeList &runtime, int num_layers, const Activation &hidden_activation, const Activation &output_activation, ExecutionPolicy policy = execution_policy::intra_example(), const ParameterBuffer *velocity = nullptr, float momentum = 0.0f);
