@@ -4,7 +4,6 @@
 
 #include "core/layer.hpp"
 #include "core/shape_utils.hpp"
-#include "shared/openmp_utils.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -204,7 +203,6 @@ template <class LossValueOp>
 inline float reduce_loss_buffer(const float *output, const float *desired_output, int output_size, const LossValueOp &loss_value_op, Reduction reduction_mode){
     float total_loss = 0.0f;
 
-    NN_OMP_SIMD_REDUCTION_PLUS(total_loss)
     for(int idx = 0; idx < output_size; idx++){
         const std::size_t data_index = static_cast<std::size_t>(idx);
         total_loss += loss_value_op(output[data_index], desired_output[data_index]);

@@ -44,7 +44,6 @@ namespace{
                         indices, input, output,
                         loss, hidden_activation, output_activation,
                         momentum,
-                        execution_policy::batch_samples(),
                         runtime_state
                     )
                     : train_batch(
@@ -53,7 +52,6 @@ namespace{
                         indices, input, output,
                         loss, hidden_activation, output_activation,
                         momentum,
-                        execution_policy::batch_samples(),
                         runtime_state
                     );
             case 2:
@@ -64,7 +62,6 @@ namespace{
                         indices, input, output,
                         loss, hidden_activation, output_activation,
                         momentum,
-                        execution_policy::batch_samples(),
                         runtime_state
                     )
                     : train_sgd(
@@ -73,7 +70,6 @@ namespace{
                         indices, input, output,
                         loss, hidden_activation, output_activation,
                         momentum,
-                        execution_policy::batch_samples(),
                         runtime_state
                     );
             case 3:
@@ -84,7 +80,6 @@ namespace{
                         indices, input, output,
                         loss, hidden_activation, output_activation,
                         momentum,
-                        execution_policy::intra_example(),
                         runtime_state
                     )
                     : train_sgd_online(
@@ -93,7 +88,6 @@ namespace{
                         indices, input, output,
                         loss, hidden_activation, output_activation,
                         momentum,
-                        execution_policy::intra_example(),
                         runtime_state
                     );
             default:

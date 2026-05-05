@@ -32,9 +32,7 @@ void init_parameter_buffer(const LayerList &architecture, ParameterBuffer &buffe
     }
 }
 
-void zero_parameter_buffer(const LayerList &architecture, ParameterBuffer &buffer, ExecutionPolicy policy){
-    (void)policy;
-
+void zero_parameter_buffer(const LayerList &architecture, ParameterBuffer &buffer){
     for(size_t l=0; l<architecture.size(); l++){
         if(architecture[l].type == Layer_type::Dense){
             std::fill(buffer.dense_weights[l].begin(), buffer.dense_weights[l].end(), 0.0f);

@@ -104,10 +104,10 @@ struct BatchTensor{
 
 // Buffer usati dal training e dall'ottimizzazione
 struct ParameterBuffer{
-    std::vector<std::vector<float>>; dense_weights;
-    std::vector<std::vector<float>>; dense_biases;
-    std::vector<std::vector<float>>; conv_weights;
-    std::vector<std::vector<float>>; conv_biases;
+    std::vector<std::vector<float>> dense_weights;
+    std::vector<std::vector<float>> dense_biases;
+    std::vector<std::vector<float>> conv_weights;
+    std::vector<std::vector<float>> conv_biases;
 };
 
 // Tipi applicativi per metriche e report

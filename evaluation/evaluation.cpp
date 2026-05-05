@@ -2,21 +2,20 @@
 
 // Questo file contiene l'inferenza di valutazione e il calcolo delle metriche.
 
-#include "evaluation/evaluation_metrics.hpp"
+#include "core/layer_validation.hpp"
+#include "core/cuda_backend.hpp"
 #include "engine/forward.hpp"
-#include "shared/openmp_utils.hpp"
+#include "evaluation/evaluation_metrics.hpp"
+
 #include <algorithm>
 #include <iostream>
 #include <utility>
+#include <vector>
 
 namespace {
-int evaluation_chunk_size(int test_count){
-    const int thread_hint = std::max(1, nn_omp_get_max_threads());
-    const int chunk_size = thread_hint * 8;
-    return std::max(1, std::min(test_count, chunk_size));
-}
-
+constexpr int kEvaluationBatchSize = 100;
 } // namespace
+
 
 int argmax_target(const Tensor &target)
 {
@@ -29,23 +28,6 @@ int argmax_target(const Tensor &target)
         {
             best_value = value;
             best_index = static_cast<int>(c);
-        }
-    }
-    return best_index;
-}
-
-int argmax_output(const Layer &output_layer, const LayerRuntime &output_runtime)
-{
-    const auto &output = runtime_output_buffer(output_layer, output_runtime);
-    int best_index = 0;
-    float best_value = output[0];
-    for (int c = 1; c < output_layer.dim_layer[0]; c++)
-    {
-        const float value = output[static_cast<std::size_t>(c)];
-        if (value > best_value)
-        {
-            best_value = value;
-            best_index = c;
         }
     }
     return best_index;
@@ -66,26 +48,30 @@ TestPerformance run_test(LayerList &architecture, int num_layers, const std::vec
     const int num_classes = architecture[num_layers - 1].dim_layer[0];
     std::vector<std::vector<int>> confusion(num_classes, std::vector<int>(num_classes, 0));
     int correct = 0;
-    const int chunk_size = evaluation_chunk_size(test_count);
 
     std::cout << "Inizio test..." << std::endl;
-    BatchRuntimeList runtime;
-    BatchTensor predicted_output;
+    cuda_backend::CudaParameterBuffer parameters;
+    cuda_backend::CudaBatchRuntimeList runtime;
+    cuda_backend::init_cuda_parameter_buffer(architecture, parameters);
+    cuda_backend::sync_cuda_parameters_from_cpu(architecture, parameters);
 
-    for(int start = 0; start < test_count; start += chunk_size){
-        const int end = std::min(test_count, start + chunk_size);
+    const int flat_size = architecture[num_layers - 1].flat_output_size();
+    std::vector<float> predicted_output;
+
+    for(int start = 0; start < test_count; start += kEvaluationBatchSize){
+        const int end = std::min(test_count, start + kEvaluationBatchSize);
         const int batch_size = end - start;
 
-        init_batch_runtime_buffers(architecture, runtime, batch_size);
+        cuda_backend::init_cuda_batch_runtime_buffers(architecture, runtime, batch_size);
         feed_input_batch(input, test_indices, start, end, architecture[0], runtime[0]);
-        forwardprop_batch(architecture, runtime, num_layers, hidden_activation, output_activation);
+        forwardprop_batch(architecture, runtime, num_layers, parameters, hidden_activation, output_activation);
 
-        predicted_output = runtime[num_layers - 1].y;
-        const int flat_size = architecture[num_layers - 1].flat_output_size();
+        predicted_output.resize(static_cast<std::size_t>(batch_size) * static_cast<std::size_t>(flat_size));
+        runtime[num_layers - 1].y.copy_to_host(predicted_output.data(), predicted_output.size());
 
         for(int batch_index = 0; batch_index < batch_size; batch_index++){
             const int sample_index = test_indices[start + batch_index];
-            const float *sample_output = predicted_output.data.data() + predicted_output.index(batch_index, 0);
+            const float *sample_output = predicted_output.data() + static_cast<std::size_t>(batch_index) * static_cast<std::size_t>(flat_size);
             int predicted = 0;
             float best_value = sample_output[0];
             for(int c = 1; c < flat_size; c++){

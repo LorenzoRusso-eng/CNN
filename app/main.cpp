@@ -1,7 +1,9 @@
 #include "cli/architecture_builder.hpp"
 #include "cli/cli_utils.hpp"
-#include "evaluation/evaluation.hpp"
+#include "core/layer_validation.hpp"
+#include "core/cuda_backend.hpp"
 #include "engine/forward.hpp"
+#include "evaluation/evaluation.hpp"
 #include "training/training.hpp"
 #include "IO/dataset_io.hpp"
 #include "IO/image_io.hpp"
@@ -18,7 +20,6 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
-#include <openblas/cblas.h>
 
 namespace {
 
@@ -387,9 +388,6 @@ void run_inference_mode(){
 
     const Tensor image = load_01scaled_image_tensor(image_path_str, input_h, input_w, input_c);
     validate_tensor_shape(image, architecture[0].dim_layer, "Inference image");
-    RuntimeList runtime;
-    init_runtime_buffers(architecture, runtime);
-    feed_input(image, architecture[0], runtime[0]);
 
     require_condition(!hidden_activation_name.empty(), "Snapshot senza attivazione hidden salvata");
     require_condition(!output_activation_name.empty(), "Snapshot senza attivazione output salvata");
@@ -397,11 +395,30 @@ void run_inference_mode(){
     const Activation &output_activation = activation_from_snapshot_name(output_activation_name);
     std::cout << "Attivazioni caricate dallo snapshot: hidden=" << hidden_activation_name << " output=" << output_activation_name << std::endl;
 
-    forwardprop(architecture, runtime, num_layers, hidden_activation, output_activation);
+    cuda_backend::CudaParameterBuffer parameters;
+    cuda_backend::CudaBatchRuntimeList runtime;
+    cuda_backend::init_cuda_parameter_buffer(architecture, parameters);
+    cuda_backend::sync_cuda_parameters_from_cpu(architecture, parameters);
 
-    const int predicted_class = argmax_output(architecture[num_layers - 1], runtime[num_layers - 1]);
-    const Layer &output_layer = architecture[num_layers - 1];
-    const auto &output_values = runtime_output_buffer(output_layer, runtime[num_layers - 1]);
+    const Dataset4D input_batch{image};
+    const std::vector<int> indices{0};
+    cuda_backend::init_cuda_batch_runtime_buffers(architecture, runtime, 1);
+    feed_input_batch(input_batch, indices, 0, 1, architecture[0], runtime[0]);
+    forwardprop_batch(architecture, runtime, num_layers, parameters, hidden_activation, output_activation);
+
+    const int flat_size = architecture[num_layers - 1].flat_output_size();
+    std::vector<float> output_values(static_cast<std::size_t>(flat_size));
+    runtime[num_layers - 1].y.copy_to_host(output_values.data(), output_values.size());
+
+    int predicted_class = 0;
+    float best_value = output_values[0];
+    for(int c = 1; c < flat_size; c++){
+        const float value = output_values[static_cast<std::size_t>(c)];
+        if(value > best_value){
+            best_value = value;
+            predicted_class = c;
+        }
+    }
     const float confidence = output_values[static_cast<std::size_t>(predicted_class)];
 
     std::cout << "Classe predetta (indice): " << predicted_class << std::endl;
@@ -416,10 +433,6 @@ void run_inference_mode(){
 
 int main(){
     try{
-        #if defined(NN_OPENBLAS_NUM_THREADS) && NN_OPENBLAS_NUM_THREADS > 0
-        openblas_set_num_threads(NN_OPENBLAS_NUM_THREADS);
-        #endif
-
         const int mode = read_bounded_int("Selezionare modalita': 1=Training 2=Inference", 1, 2, "Scelta non valida");
         if(mode == 1){
             run_training_mode();

@@ -1,4 +1,5 @@
 # Ignore build directories
+/build_*/
 /build_make/
 /build_make_probe/
 /build_codex_release/

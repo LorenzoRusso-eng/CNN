@@ -1,14 +1,30 @@
 #pragma once
 
-// Questo file contiene l'API pubblica del forward pass e dell'alimentazione dell'input.
-
-#include "core/layer.hpp"
-#include "core/layer_validation.hpp"
+#include "core/cuda_backend.hpp"
 #include "math/activations.hpp"
-#include "shared/execution_policy.hpp"
 
-void feed_input(const Tensor &input, const Layer &first, LayerRuntime &first_runtime);
-void feed_input_batch(const Dataset4D &input, const std::vector<int> &indices, int start, int end, const Layer &first, BatchLayerRuntime &first_runtime);
+#include <vector>
 
-void forwardprop(const LayerList &architecture, RuntimeList &runtime, int num_layers, const Activation &hidden_activation, const Activation &output_activation, ExecutionPolicy policy = execution_policy::intra_example(), const ParameterBuffer *velocity = nullptr, float momentum = 0.0f);
-void forwardprop_batch(const LayerList &architecture, BatchRuntimeList &runtime, int num_layers, const Activation &hidden_activation, const Activation &output_activation, ExecutionPolicy policy = execution_policy::batch_samples(), const ParameterBuffer *velocity = nullptr, float momentum = 0.0f);
+void feed_input_batch(
+    const Dataset4D &input,
+    const std::vector<int> &indices, int start, int end,
+    const Layer &first, cuda_backend::CudaBatchLayerRuntime &first_runtime
+);
+
+void fill_target_batch(
+    const Dataset4D &output,
+    const std::vector<int> &indices, int start, int end,
+    const Layer &last,
+    cuda_backend::CudaBatchTensor<float> &target_batch
+);
+
+void forwardprop_batch(
+    const LayerList &architecture,
+    cuda_backend::CudaBatchRuntimeList &runtime,
+    int num_layers,
+    const cuda_backend::CudaParameterBuffer &cuda_params,
+    const Activation &hidden_activation,
+    const Activation &output_activation,
+    const cuda_backend::CudaParameterBuffer *velocity = nullptr,
+    float momentum = 0.0f
+);

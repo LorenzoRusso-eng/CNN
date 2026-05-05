@@ -3,13 +3,13 @@
 // Questo file contiene le routine pubbliche di training batch, SGD e Nesterov.
 
 #include "cli/cli_utils.hpp"
-#include "engine/backward.hpp"
-#include "engine/forward.hpp"
-#include "training/optimizer.hpp"
-#include "training/parameter_buffer.hpp"
 #include "training/shuffle_rng.hpp"
 #include "training/training_progress.hpp"
 #include "training/training_step.hpp"
+
+#include "engine/optimize.hpp"
+#include "core/cuda_backend.hpp"
+#include "core/layer_validation.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -69,18 +69,6 @@ std::int64_t resolve_optimizer_steps(const TrainingRuntimeState *runtime_state){
     return std::max<std::int64_t>(0, runtime_state->optimizer_steps);
 }
 
-void init_or_load_velocity(const LayerList &architecture, ParameterBuffer &velocity, const TrainingRuntimeState *runtime_state){
-    training_buffers::init_parameter_buffer(architecture, velocity);
-    if(runtime_state == nullptr){
-        return;
-    }
-    if(runtime_state->velocity.dense_weights.size() == architecture.size() &&
-       runtime_state->velocity.dense_biases.size() == architecture.size() &&
-       runtime_state->velocity.conv_weights.size() == architecture.size() &&
-       runtime_state->velocity.conv_biases.size() == architecture.size()){
-        velocity = runtime_state->velocity;
-    }
-}
 
 void store_runtime_state(TrainingRuntimeState *runtime_state, int completed_epochs, std::int64_t optimizer_steps, const ParameterBuffer &velocity){
     if(runtime_state == nullptr){
@@ -89,6 +77,15 @@ void store_runtime_state(TrainingRuntimeState *runtime_state, int completed_epoc
     runtime_state->completed_epochs = completed_epochs;
     runtime_state->optimizer_steps = optimizer_steps;
     runtime_state->velocity = velocity;
+}
+
+void store_cuda_runtime_state(const LayerList &architecture, TrainingRuntimeState *runtime_state, int completed_epochs, std::int64_t optimizer_steps, const cuda_backend::CudaParameterBuffer &velocity){
+    if(runtime_state == nullptr){
+        return;
+    }
+    ParameterBuffer host_velocity;
+    cuda_backend::sync_cuda_parameters_to_cpu(architecture, velocity, host_velocity);
+    store_runtime_state(runtime_state, completed_epochs, optimizer_steps, host_velocity);
 }
 
 }
@@ -108,7 +105,10 @@ void for_each_batch(int num_tr, int batch_size, Fn &&fn){
 
 } // namespace training_iteration
 
-TrainingSummary train_batch(LayerList &architecture, int num_layers, const Decay &learning_rate_decay, int num_epochs, float target_loss, vector<int> &train_indices, const Dataset4D &input, const Dataset4D &output, const Loss &loss, const Activation &hidden_activation, const Activation &output_activation, float momentum, ExecutionPolicy policy, TrainingRuntimeState *runtime_state){
+TrainingSummary train_batch(
+    LayerList &architecture, int num_layers,
+    const Decay &learning_rate_decay,
+    int num_epochs, float target_loss, vector<int> &train_indices, const Dataset4D &input, const Dataset4D &output, const Loss &loss, const Activation &hidden_activation, const Activation &output_activation, float momentum, TrainingRuntimeState *runtime_state){
     training_progress::print_training_banner();
     validate_training_setup(architecture, num_layers, train_indices, input, output, loss, output_activation, "train_batch");
     int num_tr = static_cast<int>(train_indices.size());
@@ -119,12 +119,16 @@ TrainingSummary train_batch(LayerList &architecture, int num_layers, const Decay
     epoch_times_seconds.reserve(std::max(0, num_epochs));
     const auto training_start = std::chrono::steady_clock::now();
 
-    ParameterBuffer batch_gradients;
-    ParameterBuffer velocity;
-    BatchRuntimeList runtime;
-    BatchTensor target_batch;
-    training_buffers::init_parameter_buffer(architecture, batch_gradients);
-    init_or_load_velocity(architecture, velocity, runtime_state);
+    cuda_backend::CudaParameterBuffer gradients;
+    cuda_backend::CudaParameterBuffer parameters;
+    cuda_backend::CudaParameterBuffer velocity;
+    cuda_backend::CudaBatchRuntimeList runtime;
+    cuda_backend::CudaBatchTensor<float> target_batch;
+    cuda_backend::init_cuda_batch_runtime_buffers(architecture, runtime, num_tr);
+    cuda_backend::init_cuda_parameter_buffer(architecture, gradients);
+    cuda_backend::init_cuda_parameter_buffer(architecture, parameters);
+    cuda_backend::init_or_load_velocity(architecture, velocity, runtime_state);
+    cuda_backend::sync_cuda_parameters_from_cpu(architecture, parameters);
     const int start_epoch = resolve_start_epoch(runtime_state, num_epochs);
     executed_epochs = start_epoch;
     std::int64_t optimizer_steps = resolve_optimizer_steps(runtime_state);
@@ -137,21 +141,17 @@ TrainingSummary train_batch(LayerList &architecture, int num_layers, const Decay
 
         float loss_value = 0.0f;
         loss_value = training_batches::train_batch_chunk(
-            architecture, runtime, num_layers,
-            batch_gradients, target_batch,
+            architecture, parameters, runtime, num_layers,
+            gradients, target_batch,
             input, output, train_indices,
             0, num_tr,
-            loss, hidden_activation, output_activation,
-            policy
+            loss, hidden_activation, output_activation
         );
 
-        const ExecutionPolicy batch_parameter_policy = policy.allows_batch_sample_parallelism() ? execution_policy::intra_example() : policy;
-        training_buffers::optimizer_step(
+        optimizer_step(
             architecture, num_layers,
-            batch_gradients, velocity,
-            current_learning_rate, momentum,
-            1.0f / static_cast<float>(std::max(1, num_tr)),
-            batch_parameter_policy
+            gradients, velocity, parameters,
+            current_learning_rate, momentum
         );
         optimizer_steps++;
         loss_value /= num_tr;
@@ -168,11 +168,12 @@ TrainingSummary train_batch(LayerList &architecture, int num_layers, const Decay
     const double total_training_seconds = elapsed_seconds(training_start);
     std::cout << "Tempo training totale: " << total_training_seconds << " s" << std::endl;
     cout << endl;
-    store_runtime_state(runtime_state, executed_epochs, optimizer_steps, velocity);
+    cuda_backend::sync_cuda_parameters_to_architecture(architecture, parameters);
+    store_cuda_runtime_state(architecture, runtime_state, executed_epochs, optimizer_steps, velocity);
     return training_progress::make_summary(executed_epochs, last_epoch_loss, epoch_times_seconds, total_training_seconds, stopped_early);
 }
 
-TrainingSummary train_sgd(LayerList &architecture, int num_layers, int batch_size, const Decay &learning_rate_decay, int num_epochs, float target_loss, vector<int> &train_indices, const Dataset4D &input, const Dataset4D &output, const Loss &loss, const Activation &hidden_activation, const Activation &output_activation, float momentum, ExecutionPolicy policy, TrainingRuntimeState *runtime_state){
+TrainingSummary train_sgd(LayerList &architecture, int num_layers, int batch_size, const Decay &learning_rate_decay, int num_epochs, float target_loss, vector<int> &train_indices, const Dataset4D &input, const Dataset4D &output, const Loss &loss, const Activation &hidden_activation, const Activation &output_activation, float momentum, TrainingRuntimeState *runtime_state){
     training_progress::print_training_banner();
     validate_training_setup(architecture, num_layers, train_indices, input, output, loss, output_activation, "train_sgd");
     int num_tr = static_cast<int>(train_indices.size());
@@ -183,12 +184,16 @@ TrainingSummary train_sgd(LayerList &architecture, int num_layers, int batch_siz
     epoch_times_seconds.reserve(std::max(0, num_epochs));
     const auto training_start = std::chrono::steady_clock::now();
 
-    ParameterBuffer batch_gradients;
-    ParameterBuffer velocity;
-    BatchRuntimeList runtime;
-    BatchTensor target_batch;
-    training_buffers::init_parameter_buffer(architecture, batch_gradients);
-    init_or_load_velocity(architecture, velocity, runtime_state);
+    cuda_backend::CudaParameterBuffer gradients;
+    cuda_backend::CudaParameterBuffer parameters;
+    cuda_backend::CudaParameterBuffer velocity;
+    cuda_backend::CudaBatchRuntimeList runtime;
+    cuda_backend::CudaBatchTensor<float> target_batch;
+    cuda_backend::init_cuda_batch_runtime_buffers(architecture, runtime, batch_size);
+    cuda_backend::init_cuda_parameter_buffer(architecture, gradients);
+    cuda_backend::init_cuda_parameter_buffer(architecture, parameters);
+    cuda_backend::init_or_load_velocity(architecture, velocity, runtime_state);
+    cuda_backend::sync_cuda_parameters_from_cpu(architecture, parameters);
     const int start_epoch = resolve_start_epoch(runtime_state, num_epochs);
     executed_epochs = start_epoch;
     std::int64_t optimizer_steps = resolve_optimizer_steps(runtime_state);
@@ -202,21 +207,17 @@ TrainingSummary train_sgd(LayerList &architecture, int num_layers, int batch_siz
 
         training_iteration::for_each_batch(num_tr, batch_size, [&](int start, int end, int size){
             loss_value += training_batches::train_batch_chunk(
-                architecture, runtime, num_layers,
-                batch_gradients, target_batch,
+                architecture, parameters, runtime, num_layers,
+                gradients, target_batch,
                 input, output, train_indices,
                 start, end,
-                loss, hidden_activation, output_activation,
-                policy
+                loss, hidden_activation, output_activation
             );
 
-            const ExecutionPolicy batch_parameter_policy = policy.allows_batch_sample_parallelism() ? execution_policy::intra_example() : policy;
-            training_buffers::optimizer_step(
+            optimizer_step(
                 architecture, num_layers,
-                batch_gradients, velocity,
-                current_learning_rate, momentum,
-                1.0f / static_cast<float>(std::max(1, size)),
-                batch_parameter_policy
+                gradients, velocity, parameters,
+                current_learning_rate, momentum
             );
             optimizer_steps++;
         });
@@ -234,11 +235,12 @@ TrainingSummary train_sgd(LayerList &architecture, int num_layers, int batch_siz
     const double total_training_seconds = elapsed_seconds(training_start);
     std::cout << "Tempo training totale: " << total_training_seconds << " s" << std::endl;
     cout << endl;
-    store_runtime_state(runtime_state, executed_epochs, optimizer_steps, velocity);
+    cuda_backend::sync_cuda_parameters_to_architecture(architecture, parameters);
+    store_cuda_runtime_state(architecture, runtime_state, executed_epochs, optimizer_steps, velocity);
     return training_progress::make_summary(executed_epochs, last_epoch_loss, epoch_times_seconds, total_training_seconds, stopped_early);
 }
 
-TrainingSummary train_sgd_online(LayerList &architecture, int num_layers, int steps, const Decay &learning_rate_decay, int num_epochs, float target_loss, vector<int> &train_indices, const Dataset4D &input, const Dataset4D &output, const Loss &loss, const Activation &hidden_activation, const Activation &output_activation, float momentum, ExecutionPolicy policy, TrainingRuntimeState *runtime_state){
+TrainingSummary train_sgd_online(LayerList &architecture, int num_layers, int steps, const Decay &learning_rate_decay, int num_epochs, float target_loss, vector<int> &train_indices, const Dataset4D &input, const Dataset4D &output, const Loss &loss, const Activation &hidden_activation, const Activation &output_activation, float momentum, TrainingRuntimeState *runtime_state){
     training_progress::print_training_banner();
     validate_training_setup(architecture, num_layers, train_indices, input, output, loss, output_activation, "train_sgd_online");
     int num_tr = static_cast<int>(train_indices.size());
@@ -250,12 +252,16 @@ TrainingSummary train_sgd_online(LayerList &architecture, int num_layers, int st
     epoch_times_seconds.reserve(std::max(0, num_epochs));
     const auto training_start = std::chrono::steady_clock::now();
 
-    ParameterBuffer sample_gradients;
-    ParameterBuffer velocity;
-    RuntimeList runtime;
-    training_buffers::init_parameter_buffer(architecture, sample_gradients);
-    init_or_load_velocity(architecture, velocity, runtime_state);
-    init_runtime_buffers(architecture, runtime);
+    cuda_backend::CudaParameterBuffer gradients;
+    cuda_backend::CudaParameterBuffer parameters;
+    cuda_backend::CudaParameterBuffer velocity;
+    cuda_backend::CudaBatchRuntimeList runtime;
+    cuda_backend::CudaBatchTensor<float> target_batch;
+    cuda_backend::init_cuda_batch_runtime_buffers(architecture, runtime, 1);
+    cuda_backend::init_cuda_parameter_buffer(architecture, gradients);
+    cuda_backend::init_cuda_parameter_buffer(architecture, parameters);
+    cuda_backend::init_or_load_velocity(architecture, velocity, runtime_state);
+    cuda_backend::sync_cuda_parameters_from_cpu(architecture, parameters);
     const int start_epoch = resolve_start_epoch(runtime_state, num_epochs);
     executed_epochs = start_epoch;
     std::int64_t optimizer_steps = resolve_optimizer_steps(runtime_state);
@@ -270,16 +276,19 @@ TrainingSummary train_sgd_online(LayerList &architecture, int num_layers, int st
             const int start = s * steps;
             const int end = (s == windows - 1) ? num_tr : (s + 1) * steps;
 
-            const ExecutionPolicy online_policy = policy.allows_batch_sample_parallelism() ? execution_policy::intra_example() : policy;
             for(int t=start; t<end; t++){
-                loss_value += training_examples::train_example(
-                    architecture, runtime, num_layers,
-                    sample_gradients,
-                    input, output, train_indices[t],
-                    loss, hidden_activation, output_activation,
-                    online_policy
+                loss_value += training_batches::train_batch_chunk(
+                    architecture, parameters, runtime, num_layers,
+                    gradients, target_batch,
+                    input, output, train_indices,
+                    t, t + 1,
+                    loss, hidden_activation, output_activation
                 );
-                training_buffers::optimizer_step(architecture, num_layers, sample_gradients, velocity, current_learning_rate, momentum, 1.0f, online_policy);
+                optimizer_step(
+                    architecture, num_layers,
+                    gradients, velocity, parameters,
+                    current_learning_rate, momentum
+                );
                 optimizer_steps++;
             }
 
@@ -291,7 +300,8 @@ TrainingSummary train_sgd_online(LayerList &architecture, int num_layers, int st
                 epoch_times_seconds.push_back(epoch_seconds);
                 const double total_training_seconds = elapsed_seconds(training_start);
                 std::cout << "Tempo training totale: " << total_training_seconds << " s" << std::endl;
-                store_runtime_state(runtime_state, executed_epochs, optimizer_steps, velocity);
+                cuda_backend::sync_cuda_parameters_to_architecture(architecture, parameters);
+                store_cuda_runtime_state(architecture, runtime_state, executed_epochs, optimizer_steps, velocity);
                 return training_progress::make_summary(executed_epochs, last_observed_loss, epoch_times_seconds, total_training_seconds, stopped_early);
             }
         }
@@ -304,11 +314,12 @@ TrainingSummary train_sgd_online(LayerList &architecture, int num_layers, int st
     const double total_training_seconds = elapsed_seconds(training_start);
     std::cout << "Tempo training totale: " << total_training_seconds << " s" << std::endl;
     cout << endl;
-    store_runtime_state(runtime_state, executed_epochs, optimizer_steps, velocity);
+    cuda_backend::sync_cuda_parameters_to_architecture(architecture, parameters);
+    store_cuda_runtime_state(architecture, runtime_state, executed_epochs, optimizer_steps, velocity);
     return training_progress::make_summary(executed_epochs, last_observed_loss, epoch_times_seconds, total_training_seconds, stopped_early);
 }
 
-TrainingSummary train_batch_nesterov(LayerList &architecture, int num_layers, const Decay &learning_rate_decay, int num_epochs, float target_loss, vector<int> &train_indices, const Dataset4D &input, const Dataset4D &output, const Loss &loss, const Activation &hidden_activation, const Activation &output_activation, float momentum, ExecutionPolicy policy, TrainingRuntimeState *runtime_state){
+TrainingSummary train_batch_nesterov(LayerList &architecture, int num_layers, const Decay &learning_rate_decay, int num_epochs, float target_loss, vector<int> &train_indices, const Dataset4D &input, const Dataset4D &output, const Loss &loss, const Activation &hidden_activation, const Activation &output_activation, float momentum, TrainingRuntimeState *runtime_state){
     training_progress::print_training_banner();
     validate_training_setup(architecture, num_layers, train_indices, input, output, loss, output_activation, "train_batch_nesterov");
     int num_tr = static_cast<int>(train_indices.size());
@@ -319,12 +330,16 @@ TrainingSummary train_batch_nesterov(LayerList &architecture, int num_layers, co
     epoch_times_seconds.reserve(std::max(0, num_epochs));
     const auto training_start = std::chrono::steady_clock::now();
 
-    ParameterBuffer batch_gradients;
-    ParameterBuffer velocity;
-    BatchRuntimeList runtime;
-    BatchTensor target_batch;
-    training_buffers::init_parameter_buffer(architecture, batch_gradients);
-    init_or_load_velocity(architecture, velocity, runtime_state);
+    cuda_backend::CudaParameterBuffer gradients;
+    cuda_backend::CudaParameterBuffer parameters;
+    cuda_backend::CudaParameterBuffer velocity;
+    cuda_backend::CudaBatchRuntimeList runtime;
+    cuda_backend::CudaBatchTensor<float> target_batch;
+    cuda_backend::init_cuda_batch_runtime_buffers(architecture, runtime, num_tr);
+    cuda_backend::init_cuda_parameter_buffer(architecture, gradients);
+    cuda_backend::init_cuda_parameter_buffer(architecture, parameters);
+    cuda_backend::init_or_load_velocity(architecture, velocity, runtime_state);
+    cuda_backend::sync_cuda_parameters_from_cpu(architecture, parameters);
     const int start_epoch = resolve_start_epoch(runtime_state, num_epochs);
     executed_epochs = start_epoch;
     std::int64_t optimizer_steps = resolve_optimizer_steps(runtime_state);
@@ -336,22 +351,18 @@ TrainingSummary train_batch_nesterov(LayerList &architecture, int num_layers, co
         training_shuffle::shuffle_vec(train_indices);
         float loss_value = 0.0f;
         loss_value = training_batches::train_batch_chunk_nesterov(
-            architecture, runtime, num_layers,
-            batch_gradients, target_batch, velocity,
+            architecture, parameters, runtime, num_layers,
+            gradients, target_batch,
             input, output, train_indices,
             0, num_tr,
             loss, hidden_activation, output_activation,
-            momentum,
-            policy
+            &velocity, momentum
         );
 
-        const ExecutionPolicy batch_parameter_policy = policy.allows_batch_sample_parallelism() ? execution_policy::intra_example() : policy;
-        training_buffers::optimizer_step(
+        optimizer_step(
             architecture, num_layers,
-            batch_gradients, velocity,
-            current_learning_rate, momentum,
-            1.0f / static_cast<float>(std::max(1, num_tr)),
-            batch_parameter_policy
+            gradients, velocity, parameters,
+            current_learning_rate, momentum
         );
         optimizer_steps++;
         loss_value /= num_tr;
@@ -368,11 +379,12 @@ TrainingSummary train_batch_nesterov(LayerList &architecture, int num_layers, co
     const double total_training_seconds = elapsed_seconds(training_start);
     std::cout << "Tempo training totale: " << total_training_seconds << " s" << std::endl;
     cout << endl;
-    store_runtime_state(runtime_state, executed_epochs, optimizer_steps, velocity);
+    cuda_backend::sync_cuda_parameters_to_architecture(architecture, parameters);
+    store_cuda_runtime_state(architecture, runtime_state, executed_epochs, optimizer_steps, velocity);
     return training_progress::make_summary(executed_epochs, last_epoch_loss, epoch_times_seconds, total_training_seconds, stopped_early);
 }
 
-TrainingSummary train_sgd_nesterov(LayerList &architecture, int num_layers, int batch_size, const Decay &learning_rate_decay, int num_epochs, float target_loss, vector<int> &train_indices, const Dataset4D &input, const Dataset4D &output, const Loss &loss, const Activation &hidden_activation, const Activation &output_activation, float momentum, ExecutionPolicy policy, TrainingRuntimeState *runtime_state){
+TrainingSummary train_sgd_nesterov(LayerList &architecture, int num_layers, int batch_size, const Decay &learning_rate_decay, int num_epochs, float target_loss, vector<int> &train_indices, const Dataset4D &input, const Dataset4D &output, const Loss &loss, const Activation &hidden_activation, const Activation &output_activation, float momentum, TrainingRuntimeState *runtime_state){
     training_progress::print_training_banner();
     validate_training_setup(architecture, num_layers, train_indices, input, output, loss, output_activation, "train_sgd_nesterov");
     int num_tr = static_cast<int>(train_indices.size());
@@ -383,12 +395,16 @@ TrainingSummary train_sgd_nesterov(LayerList &architecture, int num_layers, int 
     epoch_times_seconds.reserve(std::max(0, num_epochs));
     const auto training_start = std::chrono::steady_clock::now();
 
-    ParameterBuffer batch_gradients;
-    ParameterBuffer velocity;
-    BatchRuntimeList runtime;
-    BatchTensor target_batch;
-    training_buffers::init_parameter_buffer(architecture, batch_gradients);
-    init_or_load_velocity(architecture, velocity, runtime_state);
+    cuda_backend::CudaParameterBuffer gradients;
+    cuda_backend::CudaParameterBuffer parameters;
+    cuda_backend::CudaParameterBuffer velocity;
+    cuda_backend::CudaBatchRuntimeList runtime;
+    cuda_backend::CudaBatchTensor<float> target_batch;
+    cuda_backend::init_cuda_batch_runtime_buffers(architecture, runtime, batch_size);
+    cuda_backend::init_cuda_parameter_buffer(architecture, gradients);
+    cuda_backend::init_cuda_parameter_buffer(architecture, parameters);
+    cuda_backend::init_or_load_velocity(architecture, velocity, runtime_state);
+    cuda_backend::sync_cuda_parameters_from_cpu(architecture, parameters);
     const int start_epoch = resolve_start_epoch(runtime_state, num_epochs);
     executed_epochs = start_epoch;
     std::int64_t optimizer_steps = resolve_optimizer_steps(runtime_state);
@@ -402,22 +418,18 @@ TrainingSummary train_sgd_nesterov(LayerList &architecture, int num_layers, int 
 
         training_iteration::for_each_batch(num_tr, batch_size, [&](int start, int end, int size){
             loss_value += training_batches::train_batch_chunk_nesterov(
-                architecture, runtime, num_layers,
-                batch_gradients, target_batch, velocity,
+                architecture, parameters, runtime, num_layers,
+                gradients, target_batch,
                 input, output, train_indices,
                 start, end,
                 loss, hidden_activation, output_activation,
-                momentum,
-                policy
+                &velocity, momentum
             );
 
-            const ExecutionPolicy batch_parameter_policy = policy.allows_batch_sample_parallelism() ? execution_policy::intra_example() : policy;
-            training_buffers::optimizer_step(
+            optimizer_step(
                 architecture, num_layers,
-                batch_gradients, velocity,
-                current_learning_rate, momentum,
-                1.0f / static_cast<float>(std::max(1, size)),
-                batch_parameter_policy
+                gradients, velocity, parameters,
+                current_learning_rate, momentum
             );
             optimizer_steps++;
         });
@@ -435,11 +447,12 @@ TrainingSummary train_sgd_nesterov(LayerList &architecture, int num_layers, int 
     const double total_training_seconds = elapsed_seconds(training_start);
     std::cout << "Tempo training totale: " << total_training_seconds << " s" << std::endl;
     cout << endl;
-    store_runtime_state(runtime_state, executed_epochs, optimizer_steps, velocity);
+    cuda_backend::sync_cuda_parameters_to_architecture(architecture, parameters);
+    store_cuda_runtime_state(architecture, runtime_state, executed_epochs, optimizer_steps, velocity);
     return training_progress::make_summary(executed_epochs, last_epoch_loss, epoch_times_seconds, total_training_seconds, stopped_early);
 }
 
-TrainingSummary train_sgd_online_nesterov(LayerList &architecture, int num_layers, int steps, const Decay &learning_rate_decay, int num_epochs, float target_loss, vector<int> &train_indices, const Dataset4D &input, const Dataset4D &output, const Loss &loss, const Activation &hidden_activation, const Activation &output_activation, float momentum, ExecutionPolicy policy, TrainingRuntimeState *runtime_state){
+TrainingSummary train_sgd_online_nesterov(LayerList &architecture, int num_layers, int steps, const Decay &learning_rate_decay, int num_epochs, float target_loss, vector<int> &train_indices, const Dataset4D &input, const Dataset4D &output, const Loss &loss, const Activation &hidden_activation, const Activation &output_activation, float momentum, TrainingRuntimeState *runtime_state){
     training_progress::print_training_banner();
     validate_training_setup(architecture, num_layers, train_indices, input, output, loss, output_activation, "train_sgd_online_nesterov");
     int num_tr = static_cast<int>(train_indices.size());
@@ -451,12 +464,16 @@ TrainingSummary train_sgd_online_nesterov(LayerList &architecture, int num_layer
     epoch_times_seconds.reserve(std::max(0, num_epochs));
     const auto training_start = std::chrono::steady_clock::now();
 
-    ParameterBuffer sample_gradients;
-    ParameterBuffer velocity;
-    RuntimeList runtime;
-    training_buffers::init_parameter_buffer(architecture, sample_gradients);
-    init_or_load_velocity(architecture, velocity, runtime_state);
-    init_runtime_buffers(architecture, runtime);
+    cuda_backend::CudaParameterBuffer gradients;
+    cuda_backend::CudaParameterBuffer parameters;
+    cuda_backend::CudaParameterBuffer velocity;
+    cuda_backend::CudaBatchRuntimeList runtime;
+    cuda_backend::CudaBatchTensor<float> target_batch;
+    cuda_backend::init_cuda_batch_runtime_buffers(architecture, runtime, 1);
+    cuda_backend::init_cuda_parameter_buffer(architecture, gradients);
+    cuda_backend::init_cuda_parameter_buffer(architecture, parameters);
+    cuda_backend::init_or_load_velocity(architecture, velocity, runtime_state);
+    cuda_backend::sync_cuda_parameters_from_cpu(architecture, parameters);
     const int start_epoch = resolve_start_epoch(runtime_state, num_epochs);
     executed_epochs = start_epoch;
     std::int64_t optimizer_steps = resolve_optimizer_steps(runtime_state);
@@ -471,17 +488,20 @@ TrainingSummary train_sgd_online_nesterov(LayerList &architecture, int num_layer
             const int start = s * steps;
             const int end = (s == windows - 1) ? num_tr : (s + 1) * steps;
 
-            const ExecutionPolicy online_policy = policy.allows_batch_sample_parallelism() ? execution_policy::intra_example() : policy;
             for(int t=start; t<end; t++){
-                loss_value += training_examples::train_example_nesterov(
-                    architecture, runtime, num_layers,
-                    sample_gradients, velocity,
-                    input, output, train_indices[t],
+                loss_value += training_batches::train_batch_chunk_nesterov(
+                    architecture, parameters, runtime, num_layers,
+                    gradients, target_batch,
+                    input, output, train_indices,
+                    t, t + 1,
                     loss, hidden_activation, output_activation,
-                    momentum,
-                    online_policy
+                    &velocity, momentum
                 );
-                training_buffers::optimizer_step(architecture, num_layers, sample_gradients, velocity, current_learning_rate, momentum, 1.0f, online_policy);
+                optimizer_step(
+                    architecture, num_layers,
+                    gradients, velocity, parameters,
+                    current_learning_rate, momentum
+                );
                 optimizer_steps++;
             }
             
@@ -493,7 +513,8 @@ TrainingSummary train_sgd_online_nesterov(LayerList &architecture, int num_layer
                 epoch_times_seconds.push_back(epoch_seconds);
                 const double total_training_seconds = elapsed_seconds(training_start);
                 std::cout << "Tempo training totale: " << total_training_seconds << " s" << std::endl;
-                store_runtime_state(runtime_state, executed_epochs, optimizer_steps, velocity);
+                cuda_backend::sync_cuda_parameters_to_architecture(architecture, parameters);
+                store_cuda_runtime_state(architecture, runtime_state, executed_epochs, optimizer_steps, velocity);
                 return training_progress::make_summary(executed_epochs, last_observed_loss, epoch_times_seconds, total_training_seconds, stopped_early);
             }
         }
@@ -501,13 +522,12 @@ TrainingSummary train_sgd_online_nesterov(LayerList &architecture, int num_layer
         const double epoch_seconds = elapsed_seconds(epoch_start);
         epoch_times_seconds.push_back(epoch_seconds);
         executed_epochs = e + 1;
-
-
     }
 
     const double total_training_seconds = elapsed_seconds(training_start);
     std::cout << "Tempo training totale: " << total_training_seconds << " s" << std::endl;
     cout << endl;
-    store_runtime_state(runtime_state, executed_epochs, optimizer_steps, velocity);
+    cuda_backend::sync_cuda_parameters_to_architecture(architecture, parameters);
+    store_cuda_runtime_state(architecture, runtime_state, executed_epochs, optimizer_steps, velocity);
     return training_progress::make_summary(executed_epochs, last_observed_loss, epoch_times_seconds, total_training_seconds, stopped_early);
 }

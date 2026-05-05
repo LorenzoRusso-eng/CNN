@@ -1,7 +1,6 @@
 #pragma once
 
 #include "math/activations.hpp"
-#include "shared/openmp_utils.hpp"
 
 #include <cmath>
 #include <cstddef>
@@ -199,7 +198,6 @@ inline void dispatch_derivative_op(const Activation &act, Fn &&fn){
 
 template <class ForwardOp>
 inline void apply_activation_buffer(const float *a, float *y, int n, const ForwardOp &forward_op){
-    NN_OMP_SIMD
     for(int idx = 0; idx < n; idx++){
         y[idx] = forward_op(a[idx]);
     }
@@ -207,7 +205,6 @@ inline void apply_activation_buffer(const float *a, float *y, int n, const Forwa
 
 template <class ForwardOp>
 inline void apply_bias_activation_buffer(float *a, float *y, const float *bias, int n, const ForwardOp &forward_op){
-    NN_OMP_SIMD
     for(int idx = 0; idx < n; idx++){
         const float value = a[idx] + bias[idx];
         a[idx] = value;
@@ -217,7 +214,6 @@ inline void apply_bias_activation_buffer(float *a, float *y, const float *bias, 
 
 template <class ForwardOp>
 inline void apply_lookahead_bias_activation_buffer(float *a, float *y, const float *bias, const float *velocity_bias, float momentum, int n, const ForwardOp &forward_op){
-    NN_OMP_SIMD
     for(int idx = 0; idx < n; idx++){
         const float value = a[idx] + bias[idx] + momentum * velocity_bias[idx];
         a[idx] = value;
@@ -227,11 +223,9 @@ inline void apply_lookahead_bias_activation_buffer(float *a, float *y, const flo
 
 template <class ForwardOp>
 inline void apply_repeated_bias_activation_buffer(float *a, float *y, const float *bias, int outer_count, int inner_count, const ForwardOp &forward_op){
-    NN_OMP_PARALLEL_FOR_IF(outer_count * inner_count > 4096)
     for(int outer_index = 0; outer_index < outer_count; outer_index++){
         const std::size_t base = static_cast<std::size_t>(outer_index) * static_cast<std::size_t>(inner_count);
 
-        NN_OMP_SIMD
         for(int inner_index = 0; inner_index < inner_count; inner_index++){
             const std::size_t data_index = base + static_cast<std::size_t>(inner_index);
             const float value = a[data_index] + bias[inner_index];
@@ -243,11 +237,9 @@ inline void apply_repeated_bias_activation_buffer(float *a, float *y, const floa
 
 template <class ForwardOp>
 inline void apply_repeated_lookahead_bias_activation_buffer(float *a, float *y, const float *bias, const float *velocity_bias, float momentum, int outer_count, int inner_count, const ForwardOp &forward_op){
-    NN_OMP_PARALLEL_FOR_IF(outer_count * inner_count > 4096)
     for(int outer_index = 0; outer_index < outer_count; outer_index++){
         const std::size_t base = static_cast<std::size_t>(outer_index) * static_cast<std::size_t>(inner_count);
 
-        NN_OMP_SIMD
         for(int inner_index = 0; inner_index < inner_count; inner_index++){
             const std::size_t data_index = base + static_cast<std::size_t>(inner_index);
             const float value = a[data_index] + bias[inner_index] + momentum * velocity_bias[inner_index];
