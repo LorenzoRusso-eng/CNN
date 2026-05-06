@@ -1,5 +1,6 @@
 #include "engine/forward.hpp"
 #include "core/cuda_backend.hpp"
+#include "IO/image_io.hpp"
 #include "kernels/general.hpp"
 #include "kernels/pooling.hpp"
 #include "kernels/im2col.hpp"
@@ -19,19 +20,6 @@ using cuda_backend::CudaBatchLayerRuntime;
 using cuda_backend::CudaParameterBuffer;
 
 namespace {
-
-inline void copy_negated_device(
-    const cuda_backend::CudaBatchTensor<float> &src,
-    cuda_backend::CudaBatchTensor<float> &dst
-){
-    dst.resize(src.batch_size(), src.height(), src.width(), src.channels());
-    const int total_size = static_cast<int>(src.size());
-    if(total_size <= 0){
-        return;
-    }
-    const int grid_dim = (total_size + 256 - 1) / 256;
-    copy_negated <<< grid_dim, 256 >>> (src.data(), dst.data(), total_size);
-}
 
 inline bool use_lookahead_params_batch(const CudaParameterBuffer *velocity, float momentum){
     return velocity != nullptr && momentum != 0.0f;
@@ -68,7 +56,7 @@ void forward_dense_layer_batch(
     if(!use_lookahead){
         float alpha = 1.0f;
         float beta = 0.0f;
-        cublasSgemm(
+        cuda_backend::check_cublas(cublasSgemm(
             handle,
             CUBLAS_OP_T, CUBLAS_OP_N,
             out_features, batch_size, in_features,
@@ -76,8 +64,9 @@ void forward_dense_layer_batch(
             weights_data, in_features,
             input, in_features,
             &beta, a, out_features
-        );
-        apply_bias_activation <<< activation_grid_dim, 256 >>> (bias_data, a, y, output_size, out_features, act.kind);
+        ), "forward dense cublasSgemm");
+        apply_bias_activation <<< activation_grid_dim, 256 >>> (bias_data, a, y, output_size, out_features, act.kind, act.alpha, act.beta);
+        cuda_backend::check_cuda_kernel("forward dense apply_bias_activation");
         return;
     }
 
@@ -86,7 +75,7 @@ void forward_dense_layer_batch(
 
     float alpha = 1.0f;
     float beta = 0.0f;
-    cublasSgemm(
+    cuda_backend::check_cublas(cublasSgemm(
         handle,
         CUBLAS_OP_T, CUBLAS_OP_N,
         out_features, batch_size, in_features,
@@ -94,8 +83,8 @@ void forward_dense_layer_batch(
         weights_data, in_features,
         input, in_features,
         &beta, a, out_features
-    );
-    cublasSgemm(
+    ), "forward dense lookahead base cublasSgemm");
+    cuda_backend::check_cublas(cublasSgemm(
         handle,
         CUBLAS_OP_T, CUBLAS_OP_N,
         out_features, batch_size, in_features,
@@ -103,12 +92,13 @@ void forward_dense_layer_batch(
         velocity_weight_data, in_features,
         input, in_features,
         &alpha, a, out_features
-    );
+    ), "forward dense lookahead velocity cublasSgemm");
     apply_nesterov_bias_activation <<< activation_grid_dim, 256 >>> (
         bias_data, velocity_bias_data, a, y,
         output_size, out_features, momentum, 
-        act.kind
+        act.kind, act.alpha, act.beta
     );
+    cuda_backend::check_cuda_kernel("forward dense apply_nesterov_bias_activation");
 }
 
 void forward_conv_layer_batch(
@@ -165,12 +155,13 @@ void forward_conv_layer_batch(
         col, patch_size, out_features,
         padding_height, padding_width, stride_height, stride_width
     );
+    cuda_backend::check_cuda_kernel("forward conv im2col");
 
     cublasHandle_t handle = static_cast<cublasHandle_t>(cuda_backend::current_cublas_handle());
     if(!use_lookahead){
         float alpha = 1.0f;
         float beta = 0.0f;
-        cublasSgemm(
+        cuda_backend::check_cublas(cublasSgemm(
             handle,
             CUBLAS_OP_T, CUBLAS_OP_T,
             num_filters, total_patches, patch_size,
@@ -178,8 +169,13 @@ void forward_conv_layer_batch(
             filter_data, patch_size,
             col, total_patches,
             &beta, a, num_filters
+        ), "forward conv cublasSgemm");
+        apply_bias_activation <<< activation_grid_dim, 256 >>>(
+            bias_data, a, y,
+            output_size, output_channels,
+            act.kind, act.alpha, act.beta
         );
-        apply_bias_activation <<< activation_grid_dim, 256 >>> (bias_data, a, y, output_size, output_channels, act.kind);
+        cuda_backend::check_cuda_kernel("forward conv apply_bias_activation");
         return;
     }
 
@@ -188,7 +184,7 @@ void forward_conv_layer_batch(
 
     float alpha = 1.0f;
     float beta = 0.0f;
-    cublasSgemm(
+    cuda_backend::check_cublas(cublasSgemm(
         handle,
         CUBLAS_OP_T, CUBLAS_OP_T,
         num_filters, total_patches, patch_size,
@@ -196,8 +192,8 @@ void forward_conv_layer_batch(
         filter_data, patch_size,
         col, total_patches,
         &beta, a, num_filters
-    );
-    cublasSgemm(
+    ), "forward conv lookahead base cublasSgemm");
+    cuda_backend::check_cublas(cublasSgemm(
         handle,
         CUBLAS_OP_T, CUBLAS_OP_T,
         num_filters, total_patches, patch_size,
@@ -205,12 +201,13 @@ void forward_conv_layer_batch(
         velocity_filter_data, patch_size,
         col, total_patches,
         &alpha, a, num_filters
-    );
+    ), "forward conv lookahead velocity cublasSgemm");
     apply_nesterov_bias_activation <<< activation_grid_dim, 256 >>> (
         bias_data, velocity_bias_data, a, y,
         output_size, output_channels, momentum, 
-        act.kind
+        act.kind, act.alpha, act.beta
     );
+    cuda_backend::check_cuda_kernel("forward conv apply_nesterov_bias_activation");
 }
 
 void forward_pooling_layer_batch(
@@ -251,6 +248,7 @@ void forward_pooling_layer_batch(
                 output, output_index, output_height, output_width, 
                 padding_h, padding_w, stride_h, stride_w
             );
+            cuda_backend::check_cuda_kernel("forward max_pooling_forward");
             break;
         }
 
@@ -261,6 +259,7 @@ void forward_pooling_layer_batch(
                 output, output_height, output_width, 
                 padding_h, padding_w, stride_h, stride_w
             );
+            cuda_backend::check_cuda_kernel("forward average_pooling_forward");
             break;
         }
 
@@ -271,6 +270,7 @@ void forward_pooling_layer_batch(
                 output, output_height, output_width, 
                 padding_h, padding_w, stride_h, stride_w
             );
+            cuda_backend::check_cuda_kernel("forward L2_pooling_forward");
             break;
         }
     }
@@ -299,6 +299,7 @@ void forward_lrn_layer_batch(
         window_size, total_size, channels,
         alpha_over_size, lrn_beta, lrn_k
     );
+    cuda_backend::check_cuda_kernel("forward lrn_forward");
 
 }
 
@@ -317,16 +318,23 @@ void forward_softmax_layer_batch(
     const std::size_t shared_bytes = static_cast<std::size_t>(block_size) * sizeof(float);
 
     softmax_forward <<< batch_size, block_size, shared_bytes >>> (input, output, batch_size, flat_size);
+    cuda_backend::check_cuda_kernel("forward softmax_forward");
 }
 
 } // namespace
 
 void feed_input_batch(
-    const Dataset4D &input, const std::vector<int> &indices,
+    const LazyDataset &dataset, const std::vector<int> &indices,
     int start, int end,
     const Layer &first, CudaBatchLayerRuntime &first_runtime
 ){
     require_condition(start >= 0 && end >= start && end <= static_cast<int>(indices.size()), "feed_input_batch: range batch non valido");
+    require_condition(
+        first.dim_layer[0] == dataset.input_shape[0] &&
+        first.dim_layer[1] == dataset.input_shape[1] &&
+        first.dim_layer[2] == dataset.input_shape[2],
+        "feed_input_batch: shape dataset non compatibile con il layer input"
+    );
 
     const int batch_size = end - start;
     const int flat_size = first.flat_output_size();
@@ -338,7 +346,12 @@ void feed_input_batch(
     }
 
     for(int batch_index = 0; batch_index < batch_size; batch_index++){
-        const Tensor &src = input[indices[start + batch_index]];
+        const int sample_index = indices[start + batch_index];
+        require_condition(sample_index >= 0 && sample_index < dataset.size(), "feed_input_batch: indice sample fuori range");
+        const Tensor src = load_01scaled_image_tensor(
+            dataset.samples[static_cast<std::size_t>(sample_index)].image_path,
+            first.dim_layer[0], first.dim_layer[1], first.dim_layer[2]
+        );
         validate_tensor_shape(src, first.dim_layer, "feed_input_batch");
         cuda_backend::check_cuda(cudaMemcpy(
             first_runtime.y.data() + static_cast<std::ptrdiff_t>(batch_index) * flat_size, src.data.data(),
@@ -347,22 +360,47 @@ void feed_input_batch(
     }
 }
 
+void feed_input_tensor(
+    const Tensor &input,
+    const Layer &first,
+    CudaBatchLayerRuntime &first_runtime
+){
+    validate_tensor_shape(input, first.dim_layer, "feed_input_tensor");
+    const int flat_size = first.flat_output_size();
+    if(first_runtime.y.batch_size() != 1 ||
+       first_runtime.y.height() != first.dim_layer[0] ||
+       first_runtime.y.width() != first.dim_layer[1] ||
+       first_runtime.y.channels() != first.dim_layer[2]){
+       first_runtime.y.resize(1, first.dim_layer[0], first.dim_layer[1], first.dim_layer[2]);
+    }
+
+    cuda_backend::check_cuda(cudaMemcpy(
+        first_runtime.y.data(), input.data.data(),
+        static_cast<std::size_t>(flat_size) * sizeof(float), cudaMemcpyHostToDevice
+    ), "feed_input_tensor: cudaMemcpy failed");
+}
+
 void fill_target_batch(
-    const Dataset4D &output,
+    const LazyDataset &dataset,
     const std::vector<int> &indices, int start, int end,
     const Layer &last, cuda_backend::CudaBatchTensor<float> &target_batch
 ){
     require_condition(start >= 0 && end >= start && end <= static_cast<int>(indices.size()), "fill_target_batch: range batch non valido");
+    require_condition(last.flat_output_size() == dataset.num_classes, "fill_target_batch: output size non compatibile con il numero classi");
 
     const int batch_size = end - start;
     const int flat_size = last.flat_output_size();
     target_batch.resize(batch_size, last.dim_layer[0], last.dim_layer[1], last.dim_layer[2]);
 
     for(int batch_index = 0; batch_index < batch_size; batch_index++){
-        const Tensor &src = output[indices[start + batch_index]];
-        validate_tensor_shape(src, last.dim_layer, "fill_target_batch");
+        const int sample_index = indices[start + batch_index];
+        require_condition(sample_index >= 0 && sample_index < dataset.size(), "fill_target_batch: indice sample fuori range");
+        const int class_index = dataset.samples[static_cast<std::size_t>(sample_index)].class_index;
+        require_condition(class_index >= 0 && class_index < flat_size, "fill_target_batch: classe sample fuori range");
+        std::vector<float> target(static_cast<std::size_t>(flat_size), 0.0f);
+        target[static_cast<std::size_t>(class_index)] = 1.0f;
         cuda_backend::check_cuda(cudaMemcpy(
-            target_batch.data() + static_cast<std::ptrdiff_t>(batch_index) * flat_size, src.data.data(),
+            target_batch.data() + static_cast<std::ptrdiff_t>(batch_index) * flat_size, target.data(),
             static_cast<std::size_t>(flat_size) * sizeof(float), cudaMemcpyHostToDevice
         ), "feed_target_batch: cudaMemcpy failed");
     }

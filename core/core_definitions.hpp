@@ -52,7 +52,21 @@ struct Tensor{
 
 };
 
-using Dataset4D = std::vector<Tensor>;
+struct DatasetSample{
+    std::string image_path;
+    int class_index = 0;
+};
+
+struct LazyDataset{
+    int input_shape[3] = {0, 0, 0};
+    int num_classes = 0;
+    std::vector<std::string> class_names;
+    std::vector<DatasetSample> samples;
+
+    int size() const{
+        return static_cast<int>(samples.size());
+    }
+};
 
 struct BatchTensor{
     int batch_size = 0;

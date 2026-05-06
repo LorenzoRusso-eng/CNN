@@ -150,13 +150,22 @@ inline void validate_architecture(const LayerList &architecture, int num_layers,
     }
 }
 
-inline void validate_dataset_indices_io_shapes(const LayerList &architecture, int num_layers, const Dataset4D &input, const Dataset4D &output, const std::vector<int> &indices, const std::string &context){
-    require_condition(static_cast<int>(input.size()) == static_cast<int>(output.size()), context + ": dataset input/output con cardinalita' differente");
+inline void validate_dataset_indices_io_shapes(const LayerList &architecture, int num_layers, const LazyDataset &dataset, const std::vector<int> &indices, const std::string &context){
+    require_condition(dataset.size() > 0, context + ": dataset vuoto");
+    require_condition(dataset.num_classes > 0, context + ": numero classi dataset non valido");
+    require_condition(
+        architecture[0].dim_layer[0] == dataset.input_shape[0] &&
+        architecture[0].dim_layer[1] == dataset.input_shape[1] &&
+        architecture[0].dim_layer[2] == dataset.input_shape[2],
+        context + ": shape input dataset incompatibile con architettura"
+    );
+    require_condition(architecture[num_layers - 1].flat_output_size() == dataset.num_classes, context + ": numero classi incompatibile con output architettura");
 
     for(size_t position=0; position<indices.size(); position++){
         const int sample_index = indices[position];
-        require_condition(sample_index >= 0 && sample_index < static_cast<int>(input.size()), context + ": indice sample fuori range");
-        validate_tensor_shape(input[sample_index], architecture[0].dim_layer, context + " input sample " + std::to_string(sample_index));
-        validate_tensor_shape(output[sample_index], architecture[num_layers - 1].dim_layer, context + " output sample " + std::to_string(sample_index));
+        require_condition(sample_index >= 0 && sample_index < dataset.size(), context + ": indice sample fuori range");
+        const int class_index = dataset.samples[static_cast<std::size_t>(sample_index)].class_index;
+        require_condition(class_index >= 0 && class_index < dataset.num_classes, context + ": classe sample fuori range");
+        require_condition(!dataset.samples[static_cast<std::size_t>(sample_index)].image_path.empty(), context + ": path sample vuoto");
     }
 }

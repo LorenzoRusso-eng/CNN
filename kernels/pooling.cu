@@ -170,7 +170,7 @@ __global__ void max_pooling_backward_no_overlap(
 
         if(Win_idx[i] < 0) return;
 
-        Prev[Win_idx[i]] = -Next[i];
+        Prev[Win_idx[i]] = Next[i];
     }
 }
 
@@ -185,7 +185,7 @@ __global__ void max_pooling_backward_overlap(
 
         if(Win_idx[i] < 0) return;
 
-        atomicAdd(&Prev[Win_idx[i]], -Next[i]);
+        atomicAdd(&Prev[Win_idx[i]], Next[i]);
     }
 }
 
@@ -238,7 +238,7 @@ __global__ void average_pooling_backward(
 
             }
         }
-        Prev[((batch * Prev_h + row) * Prev_w + col) * channels + ch] = -sum;
+        Prev[((batch * Prev_h + row) * Prev_w + col) * channels + ch] = sum;
     }
 }
 
@@ -283,6 +283,6 @@ __global__ void L2_pooling_backward(
                 }
             }
         }
-        Prev_cost_der[Prev_global_idx] = -sum * Prev_out[Prev_global_idx];
+        Prev_cost_der[Prev_global_idx] = sum * Prev_out[Prev_global_idx];
     }
 }

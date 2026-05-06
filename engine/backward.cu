@@ -20,19 +20,6 @@ using cuda_backend::CudaParameterBuffer;
 
 namespace{
 
-inline void copy_negated_device(
-    const cuda_backend::CudaBatchTensor<float> &src,
-    cuda_backend::CudaBatchTensor<float> &dst
-){
-    dst.resize(src.batch_size(), src.height(), src.width(), src.channels());
-    const int total_size = static_cast<int>(src.size());
-    if(total_size <= 0){
-        return;
-    }
-    const int grid_dim = (total_size + 256 - 1) / 256;
-    copy_negated <<< grid_dim, 256 >>> (src.data(), dst.data(), total_size);
-}
-
 inline bool use_lookahead_params_batch(const CudaParameterBuffer *velocity, float momentum){
     return velocity != nullptr && momentum != 0.0f;
 }
@@ -56,7 +43,7 @@ void build_cost_from_next_dense_all_batch(
     float alpha = 1.0f;
     float beta = 0.0f;
 
-    cublasSgemm(
+    cuda_backend::check_cublas(cublasSgemm(
         handle,
         CUBLAS_OP_N, CUBLAS_OP_N,
         in_features, batch_size, out_features,
@@ -65,11 +52,11 @@ void build_cost_from_next_dense_all_batch(
         delta_data, out_features,
         &beta,
         out_cost.data(), in_features
-    );
+    ), "backward dense cost cublasSgemm");
 
     if(use_lookahead_params_batch(velocity, momentum)){
         const float *velocity_weights_data = velocity->dense_weights[next_layer_index].data();
-        cublasSgemm(
+        cuda_backend::check_cublas(cublasSgemm(
             handle,
             CUBLAS_OP_N, CUBLAS_OP_N,
             in_features, batch_size, out_features,
@@ -78,7 +65,7 @@ void build_cost_from_next_dense_all_batch(
             delta_data, out_features,
             &alpha,
             out_cost.data(), in_features
-        );
+        ), "backward dense lookahead cost cublasSgemm");
     }
 }
 
@@ -119,7 +106,7 @@ void build_cost_from_next_conv_all_batch(
     float alpha = 1.0f;
     float beta = 0.0f;
 
-    cublasSgemm(
+    cuda_backend::check_cublas(cublasSgemm(
         handle,
         CUBLAS_OP_N, CUBLAS_OP_N,
         patch_size, total_out_size, num_filters,
@@ -128,11 +115,11 @@ void build_cost_from_next_conv_all_batch(
         delta_data, num_filters,
         &beta,
         col, patch_size
-    );
+    ), "backward conv cost cublasSgemm");
 
     if(use_lookahead_params_batch(velocity, momentum)){
         const float *velocity_filter_data = velocity->conv_weights[next_layer_index].data();
-        cublasSgemm(
+        cuda_backend::check_cublas(cublasSgemm(
             handle,
             CUBLAS_OP_N, CUBLAS_OP_N,
             patch_size, total_out_size, num_filters,
@@ -141,7 +128,7 @@ void build_cost_from_next_conv_all_batch(
             delta_data, num_filters,
             &alpha,
             col, patch_size
-        );
+        ), "backward conv lookahead cost cublasSgemm");
     }
 
     dim3 KernelDim(16, 16);
@@ -155,6 +142,7 @@ void build_cost_from_next_conv_all_batch(
         prev_delta, prev_height, prev_width,
         padding_height, padding_width, stride_height, stride_width
     );
+    cuda_backend::check_cuda_kernel("backward conv col2im");
 }
 
 void build_cost_from_next_pool_all_batch(
@@ -201,18 +189,23 @@ void build_cost_from_next_pool_all_batch(
 
     switch(next.pooling_type){
         case Pooling_type::Max:
-            cudaMemset(prev_delta, 0, out_cost.size() * sizeof(float));
+            cuda_backend::check_cuda(
+                cudaMemset(prev_delta, 0, out_cost.size() * sizeof(float)),
+                "backward max pooling cudaMemset prev_delta"
+            );
             if(non_overlapping_pooling){
                 max_pooling_backward_no_overlap <<< grid_size, 256 >>> (
                     next_delta, prev_winners, next_total_size,
                     prev_delta, prev_total_size, batch_size
                 );
+                cuda_backend::check_cuda_kernel("backward max_pooling_backward_no_overlap");
             }
             else{
                 max_pooling_backward_overlap <<< grid_size, 256 >>> (
                     next_delta, prev_winners, next_total_size,
                     prev_delta, prev_total_size, batch_size
                 );
+                cuda_backend::check_cuda_kernel("backward max_pooling_backward_overlap");
             }
             break;
         case Pooling_type::Average:
@@ -222,6 +215,7 @@ void build_cost_from_next_pool_all_batch(
                 prev_delta, prev_height, prev_width,
                 padding_height, padding_width, stride_height, stride_width
             );
+            cuda_backend::check_cuda_kernel("backward average_pooling_backward");
             break;
         case Pooling_type::L2:
             L2_pooling_backward <<< GridDimPrev, KernelDim >>> (
@@ -230,6 +224,7 @@ void build_cost_from_next_pool_all_batch(
                 prev_out, prev_delta, prev_height, prev_width,
                 padding_height, padding_width, stride_height, stride_width
             );
+            cuda_backend::check_cuda_kernel("backward L2_pooling_backward");
             break;
     }
 }
@@ -264,6 +259,7 @@ void build_cost_from_next_lrn_all_batch(
         prev_delta, prev_out,
         alpha_over_size, lrn_beta, lrn_k
     );
+    cuda_backend::check_cuda_kernel("backward lrn_backward");
 
 }
 
@@ -309,7 +305,7 @@ void build_cost_from_next_layer_all_batch(
             break;
 
         case Layer_type::Flatten:
-            copy_negated_device(next_runtime.delta, out_cost);
+            out_cost.copy_from_device(next_runtime.delta);
             break;
 
         case Layer_type::LRN:
@@ -320,7 +316,7 @@ void build_cost_from_next_layer_all_batch(
             break;
 
         case Layer_type::Softmax:
-            copy_negated_device(next_runtime.delta, out_cost);
+            out_cost.copy_from_device(next_runtime.delta);
             break;
 
         case Layer_type::Input:

@@ -6,13 +6,19 @@
 #include <vector>
 
 void feed_input_batch(
-    const Dataset4D &input,
+    const LazyDataset &dataset,
     const std::vector<int> &indices, int start, int end,
     const Layer &first, cuda_backend::CudaBatchLayerRuntime &first_runtime
 );
 
+void feed_input_tensor(
+    const Tensor &input,
+    const Layer &first,
+    cuda_backend::CudaBatchLayerRuntime &first_runtime
+);
+
 void fill_target_batch(
-    const Dataset4D &output,
+    const LazyDataset &dataset,
     const std::vector<int> &indices, int start, int end,
     const Layer &last,
     cuda_backend::CudaBatchTensor<float> &target_batch

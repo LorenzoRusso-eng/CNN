@@ -173,15 +173,21 @@ void run_training_mode(){
         };
         int dim_output = 0;
         int num_examples = 0;
-        Dataset4D input;
-        Dataset4D output;
+        LazyDataset dataset;
         std::vector<std::string> dataset_manifest_paths = resume_snapshot.dataset_manifest_paths;
         if(!dataset_manifest_paths.empty()){
-            load_examples_from_manifest(dataset_manifest_paths, dim_input, class_names, dim_output, num_examples, input, output);
+            load_examples_from_manifest(dataset_manifest_paths, dim_input, class_names, dataset);
+            dim_output = dataset.num_classes;
+            num_examples = dataset.size();
             validate_dataset_compatibility_with_architecture(architecture, dim_input, dim_output);
         } else {
             std::vector<std::string> runtime_class_names;
-            get_example(dim_input, dim_output, num_examples, input, output, runtime_class_names, &dataset_manifest_paths);
+            get_example(dataset, runtime_class_names, &dataset_manifest_paths);
+            dim_input[0] = dataset.input_shape[0];
+            dim_input[1] = dataset.input_shape[1];
+            dim_input[2] = dataset.input_shape[2];
+            dim_output = dataset.num_classes;
+            num_examples = dataset.size();
             validate_dataset_compatibility_with_architecture(architecture, dim_input, dim_output);
             validate_class_names_consistency(class_names, runtime_class_names);
         }
@@ -213,7 +219,7 @@ void run_training_mode(){
                     model_name, num_examples,
                     architecture, num_layers,
                     learning_rate_decay, target_total_epochs,
-                    input, output,
+                    dataset,
                     loss, hidden_activation, output_activation,
                     class_names, resume_snapshot, dataset_manifest_paths
                 );
@@ -223,7 +229,7 @@ void run_training_mode(){
                     model_name, num_examples,
                     architecture, num_layers,
                     learning_rate_decay, target_total_epochs,
-                    input, output,
+                    dataset,
                     loss, hidden_activation, output_activation,
                     class_names, resume_snapshot, dataset_manifest_paths
                 );
@@ -253,8 +259,7 @@ void run_training_mode(){
     float hold_out_ratio = 0.7f;
     int k_folds;
 
-    Dataset4D input;
-    Dataset4D output;
+    LazyDataset dataset;
     std::vector<std::string> class_names;
     std::vector<std::string> dataset_manifest_paths;
 
@@ -265,7 +270,12 @@ void run_training_mode(){
     std::getline(std::cin, model_name);
     require_condition(!is_blank_string(model_name), "Nome modello vuoto");
 
-    get_example(dim_input, dim_output, num_examples, input, output, class_names, &dataset_manifest_paths);
+    get_example(dataset, class_names, &dataset_manifest_paths);
+    dim_input[0] = dataset.input_shape[0];
+    dim_input[1] = dataset.input_shape[1];
+    dim_input[2] = dataset.input_shape[2];
+    dim_output = dataset.num_classes;
+    num_examples = dataset.size();
 
     create_architecture(num_layers, dim_input, dim_output, architecture);
 
@@ -322,7 +332,7 @@ void run_training_mode(){
             training_type, use_nesterov,
             architecture, num_layers,
             learning_rate_decay, num_epochs, target_loss,
-            input, output,
+            dataset,
             loss, hidden_activation, output_activation,
             momentum, hold_out_ratio,
             class_names, dataset_manifest_paths
@@ -340,7 +350,7 @@ void run_training_mode(){
             training_type, use_nesterov,
             architecture, num_layers,
             learning_rate_decay, num_epochs, target_loss,
-            input, output,
+            dataset,
             loss, hidden_activation, output_activation,
             momentum,
             class_names
@@ -352,7 +362,7 @@ void run_training_mode(){
             training_type, use_nesterov,
             architecture, num_layers,
             learning_rate_decay, num_epochs, target_loss,
-            input, output,
+            dataset,
             loss, hidden_activation, output_activation,
             momentum,
             class_names, dataset_manifest_paths
@@ -400,10 +410,8 @@ void run_inference_mode(){
     cuda_backend::init_cuda_parameter_buffer(architecture, parameters);
     cuda_backend::sync_cuda_parameters_from_cpu(architecture, parameters);
 
-    const Dataset4D input_batch{image};
-    const std::vector<int> indices{0};
     cuda_backend::init_cuda_batch_runtime_buffers(architecture, runtime, 1);
-    feed_input_batch(input_batch, indices, 0, 1, architecture[0], runtime[0]);
+    feed_input_tensor(image, architecture[0], runtime[0]);
     forwardprop_batch(architecture, runtime, num_layers, parameters, hidden_activation, output_activation);
 
     const int flat_size = architecture[num_layers - 1].flat_output_size();

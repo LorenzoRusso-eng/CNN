@@ -17,27 +17,11 @@ constexpr int kEvaluationBatchSize = 100;
 } // namespace
 
 
-int argmax_target(const Tensor &target)
-{
-    int best_index = 0;
-    float best_value = target.data[0];
-    for (int c = 1; c < target.height; c++)
-    {
-        const float value = target.data[static_cast<std::size_t>(c)];
-        if (value > best_value)
-        {
-            best_value = value;
-            best_index = static_cast<int>(c);
-        }
-    }
-    return best_index;
-}
-
-TestPerformance run_test(LayerList &architecture, int num_layers, const std::vector<int> &test_indices, const Dataset4D &input, const Dataset4D &output, const Activation &hidden_activation, const Activation &output_activation)
+TestPerformance run_test(LayerList &architecture, int num_layers, const std::vector<int> &test_indices, const LazyDataset &dataset, const Activation &hidden_activation, const Activation &output_activation)
 {
     TestPerformance perf;
     validate_architecture(architecture, num_layers, "run_test");
-    validate_dataset_indices_io_shapes(architecture, num_layers, input, output, test_indices, "run_test");
+    validate_dataset_indices_io_shapes(architecture, num_layers, dataset, test_indices, "run_test");
     const int test_count = static_cast<int>(test_indices.size());
     if (test_indices.empty())
     {
@@ -63,7 +47,7 @@ TestPerformance run_test(LayerList &architecture, int num_layers, const std::vec
         const int batch_size = end - start;
 
         cuda_backend::init_cuda_batch_runtime_buffers(architecture, runtime, batch_size);
-        feed_input_batch(input, test_indices, start, end, architecture[0], runtime[0]);
+        feed_input_batch(dataset, test_indices, start, end, architecture[0], runtime[0]);
         forwardprop_batch(architecture, runtime, num_layers, parameters, hidden_activation, output_activation);
 
         predicted_output.resize(static_cast<std::size_t>(batch_size) * static_cast<std::size_t>(flat_size));
@@ -82,7 +66,7 @@ TestPerformance run_test(LayerList &architecture, int num_layers, const std::vec
                 }
             }
 
-            const int expected = argmax_target(output[sample_index]);
+            const int expected = dataset.samples[static_cast<std::size_t>(sample_index)].class_index;
             confusion[expected][predicted]++;
             if(predicted == expected){
                 correct++;

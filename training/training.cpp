@@ -49,9 +49,9 @@ void validate_loss_output_compatibility(const Layer &output_layer, const Loss &c
     }
 }
 
-void validate_training_setup(const LayerList &architecture, int num_layers, const std::vector<int> &indices, const Dataset4D &input, const Dataset4D &output, const Loss &loss, const Activation &output_activation, const std::string &context){
+void validate_training_setup(const LayerList &architecture, int num_layers, const std::vector<int> &indices, const LazyDataset &dataset, const Loss &loss, const Activation &output_activation, const std::string &context){
     validate_architecture(architecture, num_layers, context);
-    validate_dataset_indices_io_shapes(architecture, num_layers, input, output, indices, context);
+    validate_dataset_indices_io_shapes(architecture, num_layers, dataset, indices, context);
     validate_loss_output_compatibility(architecture[num_layers - 1], loss, output_activation);
 }
 
@@ -108,9 +108,9 @@ void for_each_batch(int num_tr, int batch_size, Fn &&fn){
 TrainingSummary train_batch(
     LayerList &architecture, int num_layers,
     const Decay &learning_rate_decay,
-    int num_epochs, float target_loss, vector<int> &train_indices, const Dataset4D &input, const Dataset4D &output, const Loss &loss, const Activation &hidden_activation, const Activation &output_activation, float momentum, TrainingRuntimeState *runtime_state){
+    int num_epochs, float target_loss, vector<int> &train_indices, const LazyDataset &dataset, const Loss &loss, const Activation &hidden_activation, const Activation &output_activation, float momentum, TrainingRuntimeState *runtime_state){
     training_progress::print_training_banner();
-    validate_training_setup(architecture, num_layers, train_indices, input, output, loss, output_activation, "train_batch");
+    validate_training_setup(architecture, num_layers, train_indices, dataset, loss, output_activation, "train_batch");
     int num_tr = static_cast<int>(train_indices.size());
     float last_epoch_loss = std::numeric_limits<float>::quiet_NaN();
     int executed_epochs = 0;
@@ -143,7 +143,7 @@ TrainingSummary train_batch(
         loss_value = training_batches::train_batch_chunk(
             architecture, parameters, runtime, num_layers,
             gradients, target_batch,
-            input, output, train_indices,
+            dataset, train_indices,
             0, num_tr,
             loss, hidden_activation, output_activation
         );
@@ -173,9 +173,9 @@ TrainingSummary train_batch(
     return training_progress::make_summary(executed_epochs, last_epoch_loss, epoch_times_seconds, total_training_seconds, stopped_early);
 }
 
-TrainingSummary train_sgd(LayerList &architecture, int num_layers, int batch_size, const Decay &learning_rate_decay, int num_epochs, float target_loss, vector<int> &train_indices, const Dataset4D &input, const Dataset4D &output, const Loss &loss, const Activation &hidden_activation, const Activation &output_activation, float momentum, TrainingRuntimeState *runtime_state){
+TrainingSummary train_sgd(LayerList &architecture, int num_layers, int batch_size, const Decay &learning_rate_decay, int num_epochs, float target_loss, vector<int> &train_indices, const LazyDataset &dataset, const Loss &loss, const Activation &hidden_activation, const Activation &output_activation, float momentum, TrainingRuntimeState *runtime_state){
     training_progress::print_training_banner();
-    validate_training_setup(architecture, num_layers, train_indices, input, output, loss, output_activation, "train_sgd");
+    validate_training_setup(architecture, num_layers, train_indices, dataset, loss, output_activation, "train_sgd");
     int num_tr = static_cast<int>(train_indices.size());
     float last_epoch_loss = std::numeric_limits<float>::quiet_NaN();
     int executed_epochs = 0;
@@ -209,7 +209,7 @@ TrainingSummary train_sgd(LayerList &architecture, int num_layers, int batch_siz
             loss_value += training_batches::train_batch_chunk(
                 architecture, parameters, runtime, num_layers,
                 gradients, target_batch,
-                input, output, train_indices,
+                dataset, train_indices,
                 start, end,
                 loss, hidden_activation, output_activation
             );
@@ -240,9 +240,9 @@ TrainingSummary train_sgd(LayerList &architecture, int num_layers, int batch_siz
     return training_progress::make_summary(executed_epochs, last_epoch_loss, epoch_times_seconds, total_training_seconds, stopped_early);
 }
 
-TrainingSummary train_sgd_online(LayerList &architecture, int num_layers, int steps, const Decay &learning_rate_decay, int num_epochs, float target_loss, vector<int> &train_indices, const Dataset4D &input, const Dataset4D &output, const Loss &loss, const Activation &hidden_activation, const Activation &output_activation, float momentum, TrainingRuntimeState *runtime_state){
+TrainingSummary train_sgd_online(LayerList &architecture, int num_layers, int steps, const Decay &learning_rate_decay, int num_epochs, float target_loss, vector<int> &train_indices, const LazyDataset &dataset, const Loss &loss, const Activation &hidden_activation, const Activation &output_activation, float momentum, TrainingRuntimeState *runtime_state){
     training_progress::print_training_banner();
-    validate_training_setup(architecture, num_layers, train_indices, input, output, loss, output_activation, "train_sgd_online");
+    validate_training_setup(architecture, num_layers, train_indices, dataset, loss, output_activation, "train_sgd_online");
     int num_tr = static_cast<int>(train_indices.size());
     const int windows = ceil(static_cast<float>(num_tr) / steps);
     float last_observed_loss = std::numeric_limits<float>::quiet_NaN();
@@ -280,7 +280,7 @@ TrainingSummary train_sgd_online(LayerList &architecture, int num_layers, int st
                 loss_value += training_batches::train_batch_chunk(
                     architecture, parameters, runtime, num_layers,
                     gradients, target_batch,
-                    input, output, train_indices,
+                    dataset, train_indices,
                     t, t + 1,
                     loss, hidden_activation, output_activation
                 );
@@ -319,9 +319,9 @@ TrainingSummary train_sgd_online(LayerList &architecture, int num_layers, int st
     return training_progress::make_summary(executed_epochs, last_observed_loss, epoch_times_seconds, total_training_seconds, stopped_early);
 }
 
-TrainingSummary train_batch_nesterov(LayerList &architecture, int num_layers, const Decay &learning_rate_decay, int num_epochs, float target_loss, vector<int> &train_indices, const Dataset4D &input, const Dataset4D &output, const Loss &loss, const Activation &hidden_activation, const Activation &output_activation, float momentum, TrainingRuntimeState *runtime_state){
+TrainingSummary train_batch_nesterov(LayerList &architecture, int num_layers, const Decay &learning_rate_decay, int num_epochs, float target_loss, vector<int> &train_indices, const LazyDataset &dataset, const Loss &loss, const Activation &hidden_activation, const Activation &output_activation, float momentum, TrainingRuntimeState *runtime_state){
     training_progress::print_training_banner();
-    validate_training_setup(architecture, num_layers, train_indices, input, output, loss, output_activation, "train_batch_nesterov");
+    validate_training_setup(architecture, num_layers, train_indices, dataset, loss, output_activation, "train_batch_nesterov");
     int num_tr = static_cast<int>(train_indices.size());
     float last_epoch_loss = std::numeric_limits<float>::quiet_NaN();
     int executed_epochs = 0;
@@ -353,7 +353,7 @@ TrainingSummary train_batch_nesterov(LayerList &architecture, int num_layers, co
         loss_value = training_batches::train_batch_chunk_nesterov(
             architecture, parameters, runtime, num_layers,
             gradients, target_batch,
-            input, output, train_indices,
+            dataset, train_indices,
             0, num_tr,
             loss, hidden_activation, output_activation,
             &velocity, momentum
@@ -384,9 +384,9 @@ TrainingSummary train_batch_nesterov(LayerList &architecture, int num_layers, co
     return training_progress::make_summary(executed_epochs, last_epoch_loss, epoch_times_seconds, total_training_seconds, stopped_early);
 }
 
-TrainingSummary train_sgd_nesterov(LayerList &architecture, int num_layers, int batch_size, const Decay &learning_rate_decay, int num_epochs, float target_loss, vector<int> &train_indices, const Dataset4D &input, const Dataset4D &output, const Loss &loss, const Activation &hidden_activation, const Activation &output_activation, float momentum, TrainingRuntimeState *runtime_state){
+TrainingSummary train_sgd_nesterov(LayerList &architecture, int num_layers, int batch_size, const Decay &learning_rate_decay, int num_epochs, float target_loss, vector<int> &train_indices, const LazyDataset &dataset, const Loss &loss, const Activation &hidden_activation, const Activation &output_activation, float momentum, TrainingRuntimeState *runtime_state){
     training_progress::print_training_banner();
-    validate_training_setup(architecture, num_layers, train_indices, input, output, loss, output_activation, "train_sgd_nesterov");
+    validate_training_setup(architecture, num_layers, train_indices, dataset, loss, output_activation, "train_sgd_nesterov");
     int num_tr = static_cast<int>(train_indices.size());
     float last_epoch_loss = std::numeric_limits<float>::quiet_NaN();
     int executed_epochs = 0;
@@ -420,7 +420,7 @@ TrainingSummary train_sgd_nesterov(LayerList &architecture, int num_layers, int 
             loss_value += training_batches::train_batch_chunk_nesterov(
                 architecture, parameters, runtime, num_layers,
                 gradients, target_batch,
-                input, output, train_indices,
+                dataset, train_indices,
                 start, end,
                 loss, hidden_activation, output_activation,
                 &velocity, momentum
@@ -452,9 +452,9 @@ TrainingSummary train_sgd_nesterov(LayerList &architecture, int num_layers, int 
     return training_progress::make_summary(executed_epochs, last_epoch_loss, epoch_times_seconds, total_training_seconds, stopped_early);
 }
 
-TrainingSummary train_sgd_online_nesterov(LayerList &architecture, int num_layers, int steps, const Decay &learning_rate_decay, int num_epochs, float target_loss, vector<int> &train_indices, const Dataset4D &input, const Dataset4D &output, const Loss &loss, const Activation &hidden_activation, const Activation &output_activation, float momentum, TrainingRuntimeState *runtime_state){
+TrainingSummary train_sgd_online_nesterov(LayerList &architecture, int num_layers, int steps, const Decay &learning_rate_decay, int num_epochs, float target_loss, vector<int> &train_indices, const LazyDataset &dataset, const Loss &loss, const Activation &hidden_activation, const Activation &output_activation, float momentum, TrainingRuntimeState *runtime_state){
     training_progress::print_training_banner();
-    validate_training_setup(architecture, num_layers, train_indices, input, output, loss, output_activation, "train_sgd_online_nesterov");
+    validate_training_setup(architecture, num_layers, train_indices, dataset, loss, output_activation, "train_sgd_online_nesterov");
     int num_tr = static_cast<int>(train_indices.size());
     const int windows = ceil(static_cast<float>(num_tr) / steps);
     float last_observed_loss = std::numeric_limits<float>::quiet_NaN();
@@ -492,7 +492,7 @@ TrainingSummary train_sgd_online_nesterov(LayerList &architecture, int num_layer
                 loss_value += training_batches::train_batch_chunk_nesterov(
                     architecture, parameters, runtime, num_layers,
                     gradients, target_batch,
-                    input, output, train_indices,
+                    dataset, train_indices,
                     t, t + 1,
                     loss, hidden_activation, output_activation,
                     &velocity, momentum

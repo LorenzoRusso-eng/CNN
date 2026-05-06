@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <vector>
+#include <cublas_v2.h>
 #include <cuda_runtime.h>
 
 namespace cuda_backend {
@@ -82,6 +83,9 @@ struct CudaBatchLayerRuntime {
     CudaBatchTensor<float> conv_im2col;
     CudaBatchTensor<float> backprop_cost_from_next;
     CudaBatchTensor<float> reduction_ones;
+    CudaBatchTensor<float> loss_values;
+    CudaBatchTensor<float> loss_sum;
+    CudaBatchTensor<int> loss_reduce_temp;
     int batch_size = 0;
     int flat_size = 0;
 
@@ -103,6 +107,8 @@ struct CudaParameterBuffer {
 
 
 void check_cuda(cudaError_t status, const char *context);
+void check_cuda_kernel(const char *context);
+void check_cublas(cublasStatus_t status, const char *context);
 bool is_cuda_enabled() noexcept;
 void *current_cublas_handle();
 void init_cuda_runtime_buffers(const LayerList &architecture, CudaRuntimeList &runtime);

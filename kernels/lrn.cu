@@ -86,6 +86,6 @@ __global__ void lrn_backward(
             sum += Next_delta[Next_i] * local_coeff;
 
         }
-        Prev_cost_der[i] = -sum;
+        Prev_cost_der[i] = sum;
     }
 }

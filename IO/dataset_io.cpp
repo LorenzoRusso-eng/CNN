@@ -1,6 +1,6 @@
 #include "IO/dataset_io.hpp"
 
-// Questo file contiene il caricamento del dataset e il mapping classi -> target one-hot.
+// Questo file contiene il caricamento lazy del dataset e il mapping classi -> indici.
 
 #include <algorithm>
 #include <cctype>
@@ -17,7 +17,7 @@ namespace {
 
 namespace fs = std::filesystem;
 
-// Helper locali per enumerare file e costruire i target
+// Helper locali per enumerare file e riconoscere immagini supportate
 bool has_supported_image_extension(const fs::path &path){
     std::string extension = path.extension().string();
     std::transform(extension.begin(), extension.end(), extension.begin(), [](unsigned char ch){
@@ -49,13 +49,11 @@ std::vector<fs::path> collect_image_files(const fs::path &root_dir){
         }
     }
 
-    return image_files;
-}
+    std::sort(image_files.begin(), image_files.end(), [](const fs::path &lhs, const fs::path &rhs){
+        return lhs.lexically_normal().generic_string() < rhs.lexically_normal().generic_string();
+    });
 
-Tensor make_one_hot_target(int class_index, int num_classes){
-    Tensor target(num_classes, 1, 1, 0.0f);
-    target.data[static_cast<std::size_t>(target.index(class_index, 0, 0))] = 1.0f;
-    return target;
+    return image_files;
 }
 
 } // namespace
@@ -79,10 +77,7 @@ void load_examples_from_manifest(
     const std::vector<std::string> &dataset_manifest_paths,
     const int (&input_shape)[3],
     const std::vector<std::string> &class_names,
-    int &num_classes,
-    int &examples,
-    Dataset4D &input,
-    Dataset4D &output
+    LazyDataset &dataset
 ){
     if(dataset_manifest_paths.empty()){
         throw std::invalid_argument("Manifest dataset assente nello snapshot");
@@ -91,12 +86,15 @@ void load_examples_from_manifest(
         throw std::invalid_argument("Classi assenti nello snapshot");
     }
 
-    num_classes = static_cast<int>(class_names.size());
-    examples = static_cast<int>(dataset_manifest_paths.size());
-    input.resize(examples);
-    output.resize(examples);
+    dataset.input_shape[0] = input_shape[0];
+    dataset.input_shape[1] = input_shape[1];
+    dataset.input_shape[2] = input_shape[2];
+    dataset.num_classes = static_cast<int>(class_names.size());
+    dataset.class_names = class_names;
+    dataset.samples.clear();
+    dataset.samples.reserve(dataset_manifest_paths.size());
 
-    for(int e = 0; e < examples; e++){
+    for(int e = 0; e < static_cast<int>(dataset_manifest_paths.size()); e++){
         const fs::path image_path = fs::path(dataset_manifest_paths[static_cast<std::size_t>(e)]).lexically_normal();
         if(!fs::exists(image_path) || !fs::is_regular_file(image_path)){
             throw std::invalid_argument("File del manifest non trovato: " + image_path.string());
@@ -112,23 +110,27 @@ void load_examples_from_manifest(
         }
 
         const int class_index = static_cast<int>(std::distance(class_names.begin(), class_it));
-        input[static_cast<std::size_t>(e)] = load_01scaled_image_tensor(image_path, input_shape[0], input_shape[1], input_shape[2]);
-        output[static_cast<std::size_t>(e)] = make_one_hot_target(class_index, num_classes);
+        int width = 0;
+        int height = 0;
+        int channels = 0;
+        if(!stbi_info(image_path.string().c_str(), &width, &height, &channels)){
+            throw std::invalid_argument("Impossibile leggere le dimensioni dell'immagine: " + image_path.string());
+        }
+        if(height != input_shape[0] || width != input_shape[1]){
+            throw std::invalid_argument("Dimensioni immagine non valide per " + image_path.string());
+        }
+        dataset.samples.push_back(DatasetSample{image_path.generic_string(), class_index});
     }
 
     std::cout << "Dataset caricato dal manifest dello snapshot" << std::endl;
-    std::cout << "Classi caricate: " << num_classes << std::endl;
-    std::cout << "Esempi caricati: " << examples << std::endl;
+    std::cout << "Classi caricate: " << dataset.num_classes << std::endl;
+    std::cout << "Esempi caricati: " << dataset.size() << std::endl;
     std::cout << "Dimensione immagini attesa: " << input_shape[0] << "x" << input_shape[1] << std::endl;
     std::cout << "Canali attesi: " << input_shape[2] << std::endl;
 }
 
 void get_example(
-    int (&input_shape)[3],
-    int &num_classes,
-    int &examples,
-    Dataset4D &input,
-    Dataset4D &output,
+    LazyDataset &dataset,
     std::vector<std::string> &class_names,
     std::vector<std::string> *dataset_manifest_paths
 ){
@@ -153,8 +155,8 @@ void get_example(
 
     std::vector<fs::path> train_files = collect_image_files(train_dir);
 
-    num_classes = static_cast<int>(class_names.size());
-    examples = static_cast<int>(train_files.size());
+    dataset.num_classes = static_cast<int>(class_names.size());
+    const int examples = static_cast<int>(train_files.size());
 
     if(examples <= 0){
         throw std::invalid_argument("Nessuna immagine trovata nel dataset");
@@ -168,12 +170,12 @@ void get_example(
         throw std::invalid_argument("Impossibile leggere le dimensioni dell'immagine: " + train_files[0].string());
     }
 
-    input_shape[0] = height;
-    input_shape[1] = width;
-    input_shape[2] = channels;
-
-    input.resize(examples);
-    output.resize(examples);
+    dataset.input_shape[0] = height;
+    dataset.input_shape[1] = width;
+    dataset.input_shape[2] = channels;
+    dataset.class_names = class_names;
+    dataset.samples.clear();
+    dataset.samples.reserve(static_cast<std::size_t>(examples));
 
     for(int e=0; e<examples; e++){
         const fs::path &image_path = train_files[e];
@@ -184,8 +186,16 @@ void get_example(
         }
 
         const int class_index = static_cast<int>(std::distance(class_names.begin(), class_it));
-        input[e] = load_01scaled_image_tensor(image_path, input_shape[0], input_shape[1], input_shape[2]);
-        output[e] = make_one_hot_target(class_index, num_classes);
+        int image_width = 0;
+        int image_height = 0;
+        int image_channels = 0;
+        if(!stbi_info(image_path.string().c_str(), &image_width, &image_height, &image_channels)){
+            throw std::invalid_argument("Impossibile leggere le dimensioni dell'immagine: " + image_path.string());
+        }
+        if(image_height != dataset.input_shape[0] || image_width != dataset.input_shape[1]){
+            throw std::invalid_argument("Dimensioni immagine non valide per " + image_path.string());
+        }
+        dataset.samples.push_back(DatasetSample{image_path.lexically_normal().generic_string(), class_index});
     }
 
     if(dataset_manifest_paths != nullptr){
@@ -197,8 +207,8 @@ void get_example(
     }
 
     std::cout << "Dataset rilevato in " << train_dir.string() << std::endl;
-    std::cout << "Classi trovate: " << num_classes << std::endl;
-    std::cout << "Esempi presenti: " << examples << std::endl;
-    std::cout << "Canali rilevati: " << input_shape[2] << std::endl;
-    std::cout << "Dimensione immagini rilevata: " << input_shape[0] << "x" << input_shape[1] << std::endl;
+    std::cout << "Classi trovate: " << dataset.num_classes << std::endl;
+    std::cout << "Esempi presenti: " << dataset.size() << std::endl;
+    std::cout << "Canali rilevati: " << dataset.input_shape[2] << std::endl;
+    std::cout << "Dimensione immagini rilevata: " << dataset.input_shape[0] << "x" << dataset.input_shape[1] << std::endl;
 }

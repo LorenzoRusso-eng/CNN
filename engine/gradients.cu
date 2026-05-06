@@ -22,19 +22,6 @@ using cuda_backend::CudaParameterBuffer;
 
 namespace {
 
-inline void copy_negated_device(
-    const cuda_backend::CudaBatchTensor<float> &src,
-    cuda_backend::CudaBatchTensor<float> &dst
-){
-    dst.resize(src.batch_size(), src.height(), src.width(), src.channels());
-    const int total_size = static_cast<int>(src.size());
-    if(total_size <= 0){
-        return;
-    }
-    const int grid_dim = (total_size + 256 - 1) / 256;
-    copy_negated <<< grid_dim, 256 >>> (src.data(), dst.data(), total_size);
-}
-
 void backprop_dense_layer_batch(
     CudaBatchLayerRuntime &current_runtime,
     const CudaBatchLayerRuntime &previous_runtime,
@@ -69,9 +56,11 @@ void backprop_dense_layer_batch(
         compute_delta_output <<< GridDim_delta, 256 >>>(
             desired, output, a,
             total_size, batch_size,
-            act.kind, loss.kind, loss.reduction(),
+            act.kind, act.alpha, act.beta,
+            loss.kind, loss.reduction(), loss.beta,
             delta
         );
+        cuda_backend::check_cuda_kernel("dense compute_delta_output");
     } else {
         build_cost_from_next_layer_all_batch(
             current_runtime,
@@ -81,9 +70,10 @@ void backprop_dense_layer_batch(
         );
         compute_delta_hidden <<< GridDim_delta, 256 >>>(
             cost_from_next, a,
-            total_size, act.kind,
+            total_size, act.kind, act.alpha, act.beta,
             delta
         );
+        cuda_backend::check_cuda_kernel("dense compute_delta_hidden");
     }
 
     cublasHandle_t handle = static_cast<cublasHandle_t>(cuda_backend::current_cublas_handle());
@@ -98,7 +88,7 @@ void backprop_dense_layer_batch(
             cudaMemcpyDeviceToDevice
         ), "cudaMemcpy dense bias gradient");
     } else {
-        cublasSgemv(
+        cuda_backend::check_cublas(cublasSgemv(
             handle,
             CUBLAS_OP_N,
             out_features, batch_size,
@@ -107,10 +97,10 @@ void backprop_dense_layer_batch(
             ones, 1,
             &beta,
             bias_grad, 1
-        );
+        ), "dense bias gradient cublasSgemv");
     }
 
-    cublasSgemm(
+    cuda_backend::check_cublas(cublasSgemm(
         handle,
         CUBLAS_OP_N, CUBLAS_OP_T,
         in_features, out_features, batch_size,
@@ -119,7 +109,7 @@ void backprop_dense_layer_batch(
         delta, out_features,
         &beta,
         wheight_grad, in_features
-    );
+    ), "dense weight gradient cublasSgemm");
 }
 
 void backprop_conv_layer_batch(
@@ -174,9 +164,11 @@ void backprop_conv_layer_batch(
         compute_delta_output <<< GridDim_delta, 256 >>>(
             desired, output, a,
             total_size, batch_size,
-            act.kind, loss.kind, loss.reduction(),
+            act.kind, act.alpha, act.beta,
+            loss.kind, loss.reduction(), loss.beta,
             delta
         );
+        cuda_backend::check_cuda_kernel("conv compute_delta_output");
     } else {
         build_cost_from_next_layer_all_batch(
             current_runtime,
@@ -186,9 +178,10 @@ void backprop_conv_layer_batch(
         );
         compute_delta_hidden <<< GridDim_delta, 256 >>>(
             cost_from_next, a,
-            total_size, act.kind,
+            total_size, act.kind, act.alpha, act.beta,
             delta
         );
+        cuda_backend::check_cuda_kernel("conv compute_delta_hidden");
     }
 
     cublasHandle_t handle = static_cast<cublasHandle_t>(cuda_backend::current_cublas_handle());
@@ -203,7 +196,7 @@ void backprop_conv_layer_batch(
             cudaMemcpyDeviceToDevice
         ), "cudaMemcpy conv bias gradient");
     } else {
-        cublasSgemv(
+        cuda_backend::check_cublas(cublasSgemv(
             handle,
             CUBLAS_OP_N,
             num_filters, total_out_patches,
@@ -212,7 +205,7 @@ void backprop_conv_layer_batch(
             ones, 1,
             &beta,
             bias_grad, 1
-        );
+        ), "conv bias gradient cublasSgemv");
     }
 
     current_runtime.conv_im2col.resize(batch_size, patch_size, out_patches, 1);
@@ -232,8 +225,9 @@ void backprop_conv_layer_batch(
         col, patch_size, out_patches,
         padding_height, padding_width, stride_height, stride_width
     );
+    cuda_backend::check_cuda_kernel("conv gradient im2col");
 
-    cublasSgemm(
+    cuda_backend::check_cublas(cublasSgemm(
         handle,
         CUBLAS_OP_T, CUBLAS_OP_T,
         patch_size, num_filters, total_out_patches,
@@ -242,7 +236,7 @@ void backprop_conv_layer_batch(
         delta, num_filters,
         &beta,
         filter_grad, patch_size
-    );
+    ), "conv filter gradient cublasSgemm");
 }
 
 } // namespace
@@ -300,7 +294,7 @@ void backprop_batch(
                     velocity, momentum, 
                     current_runtime.backprop_cost_from_next
                 );
-                copy_negated_device(current_runtime.backprop_cost_from_next, current_runtime.delta);
+                current_runtime.delta.copy_from_device(current_runtime.backprop_cost_from_next);
                 break;
             case Layer_type::Flatten:
                 build_cost_from_next_layer_all_batch(
@@ -309,7 +303,7 @@ void backprop_batch(
                     velocity, momentum, 
                     current_runtime.backprop_cost_from_next
                 );
-                copy_negated_device(current_runtime.backprop_cost_from_next, current_runtime.delta);
+                current_runtime.delta.copy_from_device(current_runtime.backprop_cost_from_next);
                 break;
             case Layer_type::LRN:
                 build_cost_from_next_layer_all_batch(
@@ -318,13 +312,14 @@ void backprop_batch(
                     velocity, momentum, 
                     current_runtime.backprop_cost_from_next
                 );
-                copy_negated_device(current_runtime.backprop_cost_from_next, current_runtime.delta);
+                current_runtime.delta.copy_from_device(current_runtime.backprop_cost_from_next);
                 break;
             case Layer_type::Softmax: {
                 int GridDim = (current_runtime.y.size() + 256 -1) / 256;
                 softmax_backward <<< GridDim, 256 >>>(
                     current_runtime.y.data(), desired_output.data(), current_runtime.delta.data(), static_cast<int>(current_runtime.y.size())
                 );
+                cuda_backend::check_cuda_kernel("softmax_backward");
                 break;
             }
             case Layer_type::Input:

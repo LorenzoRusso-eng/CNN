@@ -14,6 +14,13 @@
 #include <algorithm>
 #include <cctype>
 
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 namespace
 {
     namespace fs = std::filesystem;
@@ -409,6 +416,131 @@ namespace
         }
         expect_token(in, "optimizer_velocity_end");
     }
+
+    fs::path temporary_snapshot_path(const fs::path &file_path){
+        fs::path temp_path = file_path;
+        temp_path += ".tmp";
+        return temp_path;
+    }
+
+    void replace_snapshot_file(const fs::path &temp_path, const fs::path &file_path){
+#ifdef _WIN32
+        if(!MoveFileExW(
+               temp_path.wstring().c_str(),
+               file_path.wstring().c_str(),
+               MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH
+           )){
+            throw std::runtime_error(
+                "Impossibile sostituire atomicamente il file snapshot: " +
+                file_path.string() +
+                " (Win32 error " + std::to_string(GetLastError()) + ")"
+            );
+        }
+#else
+        std::error_code rename_error;
+        fs::rename(temp_path, file_path, rename_error);
+        if(rename_error){
+            throw std::runtime_error(
+                "Impossibile sostituire atomicamente il file snapshot: " +
+                file_path.string() +
+                " (" + rename_error.message() + ")"
+            );
+        }
+#endif
+    }
+
+    template <typename Writer>
+    void write_snapshot_atomically(const fs::path &file_path, Writer &&writer){
+        const fs::path temp_path = temporary_snapshot_path(file_path);
+
+        {
+            std::ofstream out(temp_path, std::ios::trunc);
+            if(!out.good()){
+                throw std::runtime_error("Impossibile creare il file temporaneo snapshot: " + temp_path.string());
+            }
+
+            out << std::fixed << std::setprecision(std::numeric_limits<float>::max_digits10);
+            writer(out);
+            out.flush();
+
+            if(!out.good()){
+                throw std::runtime_error("Errore durante la scrittura del file temporaneo snapshot: " + temp_path.string());
+            }
+        }
+
+        try{
+            replace_snapshot_file(temp_path, file_path);
+        }
+        catch(...){
+            std::error_code remove_error;
+            fs::remove(temp_path, remove_error);
+            throw;
+        }
+    }
+
+    void write_model_snapshot_contents(std::ostream &out, const LayerList &architecture, int num_layers, const std::vector<std::string> &class_names, const Activation &hidden_activation, const Activation &output_activation){
+        out << "MODEL_SNAPSHOT" << std::endl;
+        out << "class_names " << class_names.size() << std::endl;
+        for(size_t c = 0; c < class_names.size(); c++){
+            out << "class_name " << c << " " << class_names[c] << std::endl;
+        }
+        out << "hidden_activation " << activation_to_snapshot_name(hidden_activation) << std::endl;
+        out << "output_activation " << activation_to_snapshot_name(output_activation) << std::endl;
+        out << "num_layers " << num_layers << std::endl;
+
+        for(int l = 0; l < num_layers; l++){
+            const Layer &layer = architecture[l];
+            out << "layer " << l << " type " << layer_text::layer_type_to_string(layer.type) << std::endl;
+            out << "dim " << layer.dim_layer[0] << " " << layer.dim_layer[1] << " " << layer.dim_layer[2] << std::endl;
+            out << "input_dim " << layer.input_dim[0] << " " << layer.input_dim[1] << " " << layer.input_dim[2] << std::endl;
+            out << "kernel_dim " << layer.kernel_dim[0] << " " << layer.kernel_dim[1] << " " << layer.kernel_dim[2] << std::endl;
+            out << "stride " << layer.stride[0] << " " << layer.stride[1] << std::endl;
+            out << "padding " << layer.padding[0] << " " << layer.padding[1] << std::endl;
+            out << "pooling_type " << layer_text::pooling_type_to_string(layer.pooling_type) << std::endl;
+            out << "lrn " << layer.lrn_local_size << " " << layer.lrn_alpha << " " << layer.lrn_beta << " " << layer.lrn_k << std::endl;
+
+            if(layer.type == Layer_type::Dense){
+                write_dense_params(out, layer);
+            }
+            else if(layer.type == Layer_type::Conv){
+                write_conv_params(out, layer);
+            }
+
+            out << "layer_end" << std::endl;
+        }
+    }
+
+    void write_training_snapshot_metadata(std::ostream &out, const LayerList &architecture, const TrainingSnapshotMetadata &metadata){
+        out << "TRAINING_SNAPSHOT_V1_BEGIN" << std::endl;
+        out << "model_name " << metadata.model_name << std::endl;
+        out << "training_method " << metadata.training_method << std::endl;
+        out << "training_type " << metadata.training_type << std::endl;
+        out << "training_window " << metadata.training_window << std::endl;
+        out << "use_nesterov " << (metadata.use_nesterov ? 1 : 0) << std::endl;
+        out << "momentum " << metadata.momentum << std::endl;
+        out << "target_loss " << metadata.target_loss << std::endl;
+        out << "requested_epochs " << metadata.requested_epochs << std::endl;
+        out << "completed_epochs " << metadata.completed_epochs << std::endl;
+        out << "optimizer_steps " << metadata.optimizer_steps << std::endl;
+        out << "training_finalized " << (metadata.training_finalized ? 1 : 0) << std::endl;
+        out << "decay_kind " << decay_kind_to_string(metadata.decay_kind) << std::endl;
+        out << "initial_learning_rate " << metadata.initial_learning_rate << std::endl;
+        out << "decay_rate " << metadata.decay_rate << std::endl;
+        out << "decay_step_size " << metadata.decay_step_size << std::endl;
+        out << "cosine_final_lr " << metadata.cosine_final_lr << std::endl;
+        out << "cosine_max_epoch " << metadata.cosine_max_epoch << std::endl;
+        out << "loss_kind " << static_cast<int>(metadata.loss_kind) << std::endl;
+        out << "loss_reduction " << static_cast<int>(metadata.loss_reduction) << std::endl;
+        out << "loss_beta " << metadata.loss_beta << std::endl;
+        out << "hold_out_ratio " << metadata.hold_out_ratio << std::endl;
+        out << "k_folds " << metadata.k_folds << std::endl;
+        write_int_vector(out, "train_indices", metadata.train_indices);
+        write_int_vector(out, "test_indices", metadata.test_indices);
+        write_string_vector(out, "dataset_manifest_paths", "dataset_manifest_path", metadata.dataset_manifest_paths);
+        out << "shuffle_rng_state " << metadata.shuffle_rng_state << std::endl;
+        write_velocity(out, architecture, metadata.optimizer_velocity);
+        out << "TRAINING_SNAPSHOT_V1_END" << std::endl;
+    }
 }
 
 void load_model_snapshot(const fs::path &snapshot_path, LayerList &architecture, std::vector<std::string> &class_names, std::string &hidden_activation_name, std::string &output_activation_name)
@@ -556,86 +688,16 @@ void load_model_snapshot(const fs::path &snapshot_path, LayerList &architecture,
 
 void save_model_snapshot(const LayerList &architecture, int num_layers, const fs::path &file_path, const std::vector<std::string> &class_names, const Activation &hidden_activation, const Activation &output_activation)
 {
-    std::ofstream out(file_path);
-    if (!out.good())
-    {
-        throw std::runtime_error("Impossibile creare il file di salvataggio: " + file_path.string());
-    }
-
-    out << std::fixed << std::setprecision(std::numeric_limits<float>::max_digits10);
-    out << "MODEL_SNAPSHOT" << std::endl;
-    out << "class_names " << class_names.size() << std::endl;
-    for (size_t c = 0; c < class_names.size(); c++)
-    {
-        out << "class_name " << c << " " << class_names[c] << std::endl;
-    }
-    out << "hidden_activation " << activation_to_snapshot_name(hidden_activation) << std::endl;
-    out << "output_activation " << activation_to_snapshot_name(output_activation) << std::endl;
-    out << "num_layers " << num_layers << std::endl;
-
-    for (int l = 0; l < num_layers; l++)
-    {
-        const Layer &layer = architecture[l];
-        out << "layer " << l << " type " << layer_text::layer_type_to_string(layer.type) << std::endl;
-        out << "dim " << layer.dim_layer[0] << " " << layer.dim_layer[1] << " " << layer.dim_layer[2] << std::endl;
-        out << "input_dim " << layer.input_dim[0] << " " << layer.input_dim[1] << " " << layer.input_dim[2] << std::endl;
-        out << "kernel_dim " << layer.kernel_dim[0] << " " << layer.kernel_dim[1] << " " << layer.kernel_dim[2] << std::endl;
-        out << "stride " << layer.stride[0] << " " << layer.stride[1] << std::endl;
-        out << "padding " << layer.padding[0] << " " << layer.padding[1] << std::endl;
-        out << "pooling_type " << layer_text::pooling_type_to_string(layer.pooling_type) << std::endl;
-        out << "lrn " << layer.lrn_local_size << " " << layer.lrn_alpha << " " << layer.lrn_beta << " " << layer.lrn_k << std::endl;
-
-        if (layer.type == Layer_type::Dense)
-        {
-            write_dense_params(out, layer);
-        }
-        else if (layer.type == Layer_type::Conv)
-        {
-            write_conv_params(out, layer);
-        }
-
-        out << "layer_end" << std::endl;
-    }
+    write_snapshot_atomically(file_path, [&](std::ostream &out){
+        write_model_snapshot_contents(out, architecture, num_layers, class_names, hidden_activation, output_activation);
+    });
 }
 
 void save_training_snapshot(const fs::path &file_path, const LayerList &architecture, int num_layers, const std::vector<std::string> &class_names, const Activation &hidden_activation, const Activation &output_activation, const TrainingSnapshotMetadata &metadata){
-    save_model_snapshot(architecture, num_layers, file_path, class_names, hidden_activation, output_activation);
-
-    std::ofstream out(file_path, std::ios::app);
-    if(!out.good()){
-        throw std::runtime_error("Impossibile aprire il file training snapshot in append: " + file_path.string());
-    }
-
-    out << std::fixed << std::setprecision(std::numeric_limits<float>::max_digits10);
-    out << "TRAINING_SNAPSHOT_V1_BEGIN" << std::endl;
-    out << "model_name " << metadata.model_name << std::endl;
-    out << "training_method " << metadata.training_method << std::endl;
-    out << "training_type " << metadata.training_type << std::endl;
-    out << "training_window " << metadata.training_window << std::endl;
-    out << "use_nesterov " << (metadata.use_nesterov ? 1 : 0) << std::endl;
-    out << "momentum " << metadata.momentum << std::endl;
-    out << "target_loss " << metadata.target_loss << std::endl;
-    out << "requested_epochs " << metadata.requested_epochs << std::endl;
-    out << "completed_epochs " << metadata.completed_epochs << std::endl;
-    out << "optimizer_steps " << metadata.optimizer_steps << std::endl;
-    out << "training_finalized " << (metadata.training_finalized ? 1 : 0) << std::endl;
-    out << "decay_kind " << decay_kind_to_string(metadata.decay_kind) << std::endl;
-    out << "initial_learning_rate " << metadata.initial_learning_rate << std::endl;
-    out << "decay_rate " << metadata.decay_rate << std::endl;
-    out << "decay_step_size " << metadata.decay_step_size << std::endl;
-    out << "cosine_final_lr " << metadata.cosine_final_lr << std::endl;
-    out << "cosine_max_epoch " << metadata.cosine_max_epoch << std::endl;
-    out << "loss_kind " << static_cast<int>(metadata.loss_kind) << std::endl;
-    out << "loss_reduction " << static_cast<int>(metadata.loss_reduction) << std::endl;
-    out << "loss_beta " << metadata.loss_beta << std::endl;
-    out << "hold_out_ratio " << metadata.hold_out_ratio << std::endl;
-    out << "k_folds " << metadata.k_folds << std::endl;
-    write_int_vector(out, "train_indices", metadata.train_indices);
-    write_int_vector(out, "test_indices", metadata.test_indices);
-    write_string_vector(out, "dataset_manifest_paths", "dataset_manifest_path", metadata.dataset_manifest_paths);
-    out << "shuffle_rng_state " << metadata.shuffle_rng_state << std::endl;
-    write_velocity(out, architecture, metadata.optimizer_velocity);
-    out << "TRAINING_SNAPSHOT_V1_END" << std::endl;
+    write_snapshot_atomically(file_path, [&](std::ostream &out){
+        write_model_snapshot_contents(out, architecture, num_layers, class_names, hidden_activation, output_activation);
+        write_training_snapshot_metadata(out, architecture, metadata);
+    });
 }
 
 void load_training_snapshot(const fs::path &file_path, LayerList &architecture, std::vector<std::string> &class_names, std::string &hidden_activation_name, std::string &output_activation_name, TrainingSnapshotMetadata &metadata){

@@ -47,6 +47,7 @@ void optimizer_step(
                     velocity_weight_data, velocity_bias_data,
                     learning_rate, momentum, total_size, in_features
                 );
+                cuda_backend::check_cuda_kernel("optimizer dense update_params");
                 break;
             }
 
@@ -71,6 +72,7 @@ void optimizer_step(
                     velocity_filter_data, velocity_bias_data,
                     learning_rate, momentum, total_size, patch_size
                 );
+                cuda_backend::check_cuda_kernel("optimizer conv update_params");
                 break;
             }
 

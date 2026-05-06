@@ -16,7 +16,7 @@ void reset_input_stream(){
     std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
 }
 
-const Activation& activation_from_choice(int choice){
+Activation activation_from_choice(int choice){
     switch(choice){
         case 1: return identity;
         case 2: return sigmoid;
@@ -29,6 +29,27 @@ const Activation& activation_from_choice(int choice){
         case 9: return mish;
         case 10: return gelu;
         default: return relu;
+    }
+}
+
+void configure_activation_parameters(Activation &activation){
+    switch(activation.kind){
+        case ActivationKind::ELU:
+            activation.alpha = read_bounded_float(
+                "Scegliere il parametro alpha per ELU (maggiore o uguale a 0)",
+                0.0f
+            );
+            break;
+        case ActivationKind::Swish:
+            activation.beta = read_bounded_float(
+                "Scegliere il parametro beta per Swish (maggiore di 0)",
+                std::numeric_limits<float>::epsilon(),
+                std::numeric_limits<float>::max(),
+                "Inserire un valore maggiore di 0."
+            );
+            break;
+        default:
+            break;
     }
 }
 
@@ -109,17 +130,21 @@ Reduction choose_loss_reduction(){
 
 // Selezione di attivazioni e loss
 
-const Activation& choose_hidden_activation(){
-    return activation_from_choice(choose_activation_option("Scegliere la funzione di attivazione dei layer nascosti:", false));
+Activation choose_hidden_activation(){
+    Activation activation = activation_from_choice(choose_activation_option("Scegliere la funzione di attivazione dei layer nascosti:", false));
+    configure_activation_parameters(activation);
+    return activation;
 }
 
-const Activation& choose_output_activation(bool final_is_softmax){
+Activation choose_output_activation(bool final_is_softmax){
     if(final_is_softmax){
         std::cout << "Output finale con Softmax: il Dense precedente usa logits lineari, quindi la funzione di output e' fissata a Identity." << std::endl;
         return identity;
     }
 
-    return activation_from_choice(choose_activation_option("Scegliere la funzione di attivazione del layer di output:", true));
+    Activation activation = activation_from_choice(choose_activation_option("Scegliere la funzione di attivazione del layer di output:", true));
+    configure_activation_parameters(activation);
+    return activation;
 }
 
 const Loss& choose_loss_function(bool final_is_softmax){
@@ -140,8 +165,24 @@ const Loss& choose_loss_function(bool final_is_softmax){
         case 1: simple_loss.set_reduction(reduction); return simple_loss;
         case 2: l1_loss.set_reduction(reduction); return l1_loss;
         case 3: l2_loss.set_reduction(reduction); return l2_loss;
-        case 4: smooth_l1_loss.set_reduction(reduction); return smooth_l1_loss;
-        case 5: huber_loss.set_reduction(reduction); return huber_loss;
+        case 4:
+            smooth_l1_loss.set_reduction(reduction);
+            smooth_l1_loss.beta = read_bounded_float(
+                "Scegliere il parametro beta per SmoothL1 (maggiore di 0)",
+                std::numeric_limits<float>::epsilon(),
+                std::numeric_limits<float>::max(),
+                "Inserire un valore maggiore di 0."
+            );
+            return smooth_l1_loss;
+        case 5:
+            huber_loss.set_reduction(reduction);
+            huber_loss.beta = read_bounded_float(
+                "Scegliere il parametro beta per Huber (maggiore di 0)",
+                std::numeric_limits<float>::epsilon(),
+                std::numeric_limits<float>::max(),
+                "Inserire un valore maggiore di 0."
+            );
+            return huber_loss;
         case 6: cross_entropy.set_reduction(reduction); return cross_entropy;
         default: simple_loss.set_reduction(reduction); return simple_loss;
     }

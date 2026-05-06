@@ -21,19 +21,20 @@ __global__ void apply_nesterov_bias_activation(
 
 __global__ void compute_delta_output(
     const float *desired, const float *output, const float *a,
-    int total_size, int batch_size, ActivationKind actkind, LossKind losskind, Reduction red,
+    int total_size, int batch_size, ActivationKind actkind, float activation_alpha, float activation_beta,
+    LossKind losskind, Reduction red, float loss_beta,
     float *delta
 );
 
 __global__ void compute_delta_hidden(
     const float *cost_from_next, const float *a,
-    int total_size, ActivationKind kind,
+    int total_size, ActivationKind kind, float activation_alpha, float activation_beta,
     float *delta
 );
 
 __global__ void compute_loss(
     const float *output, const float *desired,
-    int total_size, LossKind kind, Reduction red,
+    int total_size, int flat_size, LossKind kind, Reduction red, float loss_beta,
     float *loss_value
 );
 

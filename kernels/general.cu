@@ -53,41 +53,42 @@ __global__ void apply_nesterov_bias_activation(
 
 __global__ void compute_delta_output(
     const float *desired, const float *output, const float *a,
-    int total_size, int batch_size, ActivationKind actkind, LossKind losskind, Reduction red,
+    int total_size, int batch_size, ActivationKind actkind, float activation_alpha, float activation_beta,
+    LossKind losskind, Reduction red, float loss_beta,
     float *delta
 ){
     int i = blockDim.x * blockIdx.x + threadIdx.x;
 
     if(i < total_size){
         int flat_size = total_size / batch_size;
-        float loss_der = cuda_apply_cost_derivative(output[i], desired[i], losskind, red, flat_size);
-        float act_der = cuda_apply_activation_derivative(a[i], actkind);
-        delta[i] = - act_der * loss_der;
+        float loss_der = cuda_apply_cost_derivative(output[i], desired[i], losskind, red, flat_size, loss_beta);
+        float act_der = cuda_apply_activation_derivative(a[i], actkind, activation_alpha, activation_beta);
+        delta[i] = act_der * loss_der;
     }
 }
 
 __global__ void compute_delta_hidden(
     const float *cost_from_next, const float *a,
-    int total_size, ActivationKind kind,
+    int total_size, ActivationKind kind, float activation_alpha, float activation_beta,
     float *delta
 ){
     int i = blockDim.x * blockIdx.x + threadIdx.x;
 
     if(i < total_size){
-        float act_der = cuda_apply_activation_derivative(a[i], kind);
-        delta[i] = - act_der * cost_from_next[i];
+        float act_der = cuda_apply_activation_derivative(a[i], kind, activation_alpha, activation_beta);
+        delta[i] = act_der * cost_from_next[i];
     }
 }
 
 __global__ void compute_loss(
     const float *output, const float *desired,
-    int total_size, LossKind kind, Reduction red,
+    int total_size, int flat_size, LossKind kind, Reduction red, float loss_beta,
     float *loss_value
 ){
     int i = blockDim.x * blockIdx.x + threadIdx.x;
 
     if(i < total_size){
-        loss_value[i] = cuda_apply_cost(output[i], desired[i], kind, red, total_size);
+        loss_value[i] = cuda_apply_cost(output[i], desired[i], kind, red, flat_size, loss_beta);
     }
 }
 
@@ -100,11 +101,11 @@ __global__ void update_params(
     if(i < total_size){
         if(i % in_features == 0){
             int feature_idx = i / in_features;
-            velocity_b[feature_idx] = momentum * velocity_b[feature_idx] + learning_rate * grad_b[feature_idx];
+            velocity_b[feature_idx] = momentum * velocity_b[feature_idx] - learning_rate * grad_b[feature_idx];
             param_b[feature_idx] += velocity_b[feature_idx];
         }
 
-        velocity_w[i] = momentum * velocity_w[i] + learning_rate * grad_w[i];
+        velocity_w[i] = momentum * velocity_w[i] - learning_rate * grad_w[i];
         param_w[i] += velocity_w[i];
         
     }

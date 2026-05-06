@@ -1,6 +1,6 @@
 #pragma once
 
-// Questo file contiene il caricamento del dataset organizzato per classi.
+// Questo file contiene il caricamento lazy del dataset organizzato per classi.
 
 #include <filesystem>
 #include <string>
@@ -14,17 +14,10 @@ void load_examples_from_manifest(
     const std::vector<std::string> &dataset_manifest_paths,
     const int (&input_shape)[3],
     const std::vector<std::string> &class_names,
-    int &num_classes,
-    int &examples,
-    Dataset4D &input,
-    Dataset4D &output
+    LazyDataset &dataset
 );
 void get_example(
-    int (&input_shape)[3],
-    int &num_classes,
-    int &examples,
-    Dataset4D &input,
-    Dataset4D &output,
+    LazyDataset &dataset,
     std::vector<std::string> &class_names,
     std::vector<std::string> *dataset_manifest_paths = nullptr
 );

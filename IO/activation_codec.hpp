@@ -5,4 +5,4 @@
 #include <string>
 
 std::string activation_to_snapshot_name(const Activation &activation);
-const Activation &activation_from_snapshot_name(const std::string &activation_name);
+Activation activation_from_snapshot_name(const std::string &activation_name);

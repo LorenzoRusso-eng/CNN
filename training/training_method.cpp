@@ -22,11 +22,11 @@ using namespace std;
 namespace{
     namespace fs = std::filesystem;
 
-    std::vector<std::vector<int>> build_indices_per_class(const Dataset4D &output, int num_classes){
+    std::vector<std::vector<int>> build_indices_per_class(const LazyDataset &dataset, int num_classes){
         std::vector<std::vector<int>> indices_per_class(num_classes);
 
-        for(int i = 0; i < static_cast<int>(output.size()); i++){
-            const int class_index = argmax_target(output[i]);
+        for(int i = 0; i < dataset.size(); i++){
+            const int class_index = dataset.samples[static_cast<std::size_t>(i)].class_index;
             if(class_index < 0 || class_index >= num_classes) throw std::invalid_argument("Indice di classe non valido nel dataset");
             indices_per_class[class_index].push_back(i);
         }
@@ -34,14 +34,14 @@ namespace{
         return indices_per_class;
     }
 
-    TrainingSummary train(int training_type, bool use_nesterov, int window, std::vector<int> &indices, LayerList &architecture, int num_layers, const Decay &learning_rate_decay, int num_epochs, float target_loss, const Dataset4D &input, const Dataset4D &output, const Loss &loss, const Activation &hidden_activation, const Activation &output_activation, float momentum, TrainingRuntimeState *runtime_state = nullptr){
+    TrainingSummary train(int training_type, bool use_nesterov, int window, std::vector<int> &indices, LayerList &architecture, int num_layers, const Decay &learning_rate_decay, int num_epochs, float target_loss, const LazyDataset &dataset, const Loss &loss, const Activation &hidden_activation, const Activation &output_activation, float momentum, TrainingRuntimeState *runtime_state = nullptr){
         switch(training_type){
             case 1:
                 return use_nesterov
                     ? train_batch_nesterov(
                         architecture, num_layers,
                         learning_rate_decay, num_epochs, target_loss,
-                        indices, input, output,
+                        indices, dataset,
                         loss, hidden_activation, output_activation,
                         momentum,
                         runtime_state
@@ -49,7 +49,7 @@ namespace{
                     : train_batch(
                         architecture, num_layers,
                         learning_rate_decay, num_epochs, target_loss,
-                        indices, input, output,
+                        indices, dataset,
                         loss, hidden_activation, output_activation,
                         momentum,
                         runtime_state
@@ -59,7 +59,7 @@ namespace{
                     ? train_sgd_nesterov(
                         architecture, num_layers, window,
                         learning_rate_decay, num_epochs, target_loss,
-                        indices, input, output,
+                        indices, dataset,
                         loss, hidden_activation, output_activation,
                         momentum,
                         runtime_state
@@ -67,7 +67,7 @@ namespace{
                     : train_sgd(
                         architecture, num_layers, window,
                         learning_rate_decay, num_epochs, target_loss,
-                        indices, input, output,
+                        indices, dataset,
                         loss, hidden_activation, output_activation,
                         momentum,
                         runtime_state
@@ -77,7 +77,7 @@ namespace{
                     ? train_sgd_online_nesterov(
                         architecture, num_layers, window,
                         learning_rate_decay, num_epochs, target_loss,
-                        indices, input, output,
+                        indices, dataset,
                         loss, hidden_activation, output_activation,
                         momentum,
                         runtime_state
@@ -85,7 +85,7 @@ namespace{
                     : train_sgd_online(
                         architecture, num_layers, window,
                         learning_rate_decay, num_epochs, target_loss,
-                        indices, input, output,
+                        indices, dataset,
                         loss, hidden_activation, output_activation,
                         momentum,
                         runtime_state
@@ -99,11 +99,11 @@ namespace{
 
 namespace training_split {
 
-void build_stratified_hold_out_indices(const Dataset4D &output, int num_classes, float train_ratio, std::vector<int> &train_indices, std::vector<int> &test_indices){
+void build_stratified_hold_out_indices(const LazyDataset &dataset, int num_classes, float train_ratio, std::vector<int> &train_indices, std::vector<int> &test_indices){
     train_indices.clear();
     test_indices.clear();
 
-    std::vector<std::vector<int>> indices_per_class = build_indices_per_class(output, num_classes);
+    std::vector<std::vector<int>> indices_per_class = build_indices_per_class(dataset, num_classes);
 
     for(int c = 0; c < num_classes; c++){
         std::vector<int> &class_indices = indices_per_class[c];
@@ -124,11 +124,11 @@ void build_stratified_hold_out_indices(const Dataset4D &output, int num_classes,
     training_shuffle::shuffle_vec(test_indices);
 }
 
-std::vector<std::vector<int>> build_stratified_folds(const Dataset4D &output, int num_classes, int k_folds){
+std::vector<std::vector<int>> build_stratified_folds(const LazyDataset &dataset, int num_classes, int k_folds){
     if(k_folds <= 0) throw std::invalid_argument("K deve essere positivo");
 
     std::vector<std::vector<int>> folds(k_folds);
-    std::vector<std::vector<int>> indices_per_class = build_indices_per_class(output, num_classes);
+    std::vector<std::vector<int>> indices_per_class = build_indices_per_class(dataset, num_classes);
 
     for(int c = 0; c < num_classes; c++){
         std::vector<int> &class_indices = indices_per_class[c];
@@ -146,15 +146,15 @@ std::vector<std::vector<int>> build_stratified_folds(const Dataset4D &output, in
 
 } // namespace training_split
 
-void hold_out(string model_name, int num_examples, int training_type, bool use_nesterov, LayerList &architecture, int num_layers, const Decay &learning_rate_decay, int num_epochs, float target_loss, const Dataset4D &input, const Dataset4D &output, const Loss &loss, const Activation &hidden_activation, const Activation &output_activation, float momentum, float train_ratio, const std::vector<std::string> &class_names, const std::vector<std::string> &dataset_manifest_paths){
+void hold_out(string model_name, int num_examples, int training_type, bool use_nesterov, LayerList &architecture, int num_layers, const Decay &learning_rate_decay, int num_epochs, float target_loss, const LazyDataset &dataset, const Loss &loss, const Activation &hidden_activation, const Activation &output_activation, float momentum, float train_ratio, const std::vector<std::string> &class_names, const std::vector<std::string> &dataset_manifest_paths){
     (void)num_examples;
     vector<int> train_indices, test_indices;
     TrainingSummary training_summary{};
     TestPerformance performance{};
     TrainingRuntimeState runtime_state{};
 
-    const int num_classes = output[0].height;
-    training_split::build_stratified_hold_out_indices(output, num_classes, train_ratio, train_indices, test_indices);
+    const int num_classes = dataset.num_classes;
+    training_split::build_stratified_hold_out_indices(dataset, num_classes, train_ratio, train_indices, test_indices);
 
     int window = choose_training_window(training_type, static_cast<int>(train_indices.size()));
 
@@ -163,12 +163,12 @@ void hold_out(string model_name, int num_examples, int training_type, bool use_n
         train_indices,
         architecture, num_layers,
         learning_rate_decay, num_epochs, target_loss,
-        input, output,
+        dataset,
         loss, hidden_activation, output_activation,
         momentum,
         &runtime_state
     );
-    performance = run_test(architecture, num_layers, test_indices, input, output, hidden_activation, output_activation);
+    performance = run_test(architecture, num_layers, test_indices, dataset, hidden_activation, output_activation);
 
     ReportMetadata report_meta = training_metadata::build_report_metadata(
         model_name, "Hold-out",
@@ -211,15 +211,15 @@ void hold_out(string model_name, int num_examples, int training_type, bool use_n
     std::cout << "Snapshot completo di training salvato in: " << training_snapshot_path << std::endl;
 }
 
-void k_fold(string model_name, int k_folds, int num_examples, int training_type, bool use_nesterov, LayerList &architecture, int num_layers, const Decay &learning_rate_decay, int num_epochs, float target_loss, const Dataset4D &input, const Dataset4D &output, const Loss &loss, const Activation &hidden_activation, const Activation &output_activation, float momentum, const std::vector<std::string> &class_names){
+void k_fold(string model_name, int k_folds, int num_examples, int training_type, bool use_nesterov, LayerList &architecture, int num_layers, const Decay &learning_rate_decay, int num_epochs, float target_loss, const LazyDataset &dataset, const Loss &loss, const Activation &hidden_activation, const Activation &output_activation, float momentum, const std::vector<std::string> &class_names){
     (void)class_names;
     vector<int> train_indices, test_indices;
     LayerList architecture_copy = architecture;
     vector<TrainingSummary> training_summary{};
     vector<TestPerformance> performance{};
 
-    const int num_classes = output[0].height;
-    const std::vector<std::vector<int>> folds = training_split::build_stratified_folds(output, num_classes, k_folds);
+    const int num_classes = dataset.num_classes;
+    const std::vector<std::vector<int>> folds = training_split::build_stratified_folds(dataset, num_classes, k_folds);
 
     int min_train_size = num_examples;
     for(const auto &fold : folds) min_train_size = std::min(min_train_size, num_examples - static_cast<int>(fold.size()));
@@ -243,13 +243,13 @@ void k_fold(string model_name, int k_folds, int num_examples, int training_type,
             train_indices,
             architecture, num_layers,
             learning_rate_decay, num_epochs, target_loss,
-            input, output,
+            dataset,
             loss, hidden_activation, output_activation,
             momentum,
             nullptr
         ));
         cout << "Fine dell'apprendimento per il fold numero " << k+1 << ", inizio del test" << endl;
-        performance.push_back(run_test(architecture, num_layers, test_indices, input, output, hidden_activation, output_activation));
+        performance.push_back(run_test(architecture, num_layers, test_indices, dataset, hidden_activation, output_activation));
     }
 
     ReportMetadata report_meta = training_metadata::build_report_metadata(
@@ -267,7 +267,7 @@ void k_fold(string model_name, int k_folds, int num_examples, int training_type,
 
 }
 
-void full_training(std::string model_name, int num_examples, int training_type, bool use_nesterov, LayerList &architecture, int num_layers, const Decay &learning_rate_decay, int num_epochs, float target_loss, const Dataset4D &input, const Dataset4D &output, const Loss &loss, const Activation &hidden_activation, const Activation &output_activation, float momentum, const std::vector<std::string> &class_names, const std::vector<std::string> &dataset_manifest_paths){
+void full_training(std::string model_name, int num_examples, int training_type, bool use_nesterov, LayerList &architecture, int num_layers, const Decay &learning_rate_decay, int num_epochs, float target_loss, const LazyDataset &dataset, const Loss &loss, const Activation &hidden_activation, const Activation &output_activation, float momentum, const std::vector<std::string> &class_names, const std::vector<std::string> &dataset_manifest_paths){
     vector<int> train_indices(num_examples);
     iota(train_indices.begin(), train_indices.end(), 0);
     int window = choose_training_window(training_type, num_examples);
@@ -277,7 +277,7 @@ void full_training(std::string model_name, int num_examples, int training_type, 
         train_indices,
         architecture, num_layers,
         learning_rate_decay, num_epochs, target_loss,
-        input, output,
+        dataset,
         loss, hidden_activation, output_activation,
         momentum,
         &runtime_state
@@ -304,7 +304,7 @@ void full_training(std::string model_name, int num_examples, int training_type, 
 
 }
 
-void hold_out_resume(std::string model_name, int num_examples, LayerList &architecture, int num_layers, const Decay &learning_rate_decay, int target_total_epochs, const Dataset4D &input, const Dataset4D &output, const Loss &loss, const Activation &hidden_activation, const Activation &output_activation, const std::vector<std::string> &class_names, const TrainingSnapshotMetadata &resume_snapshot, const std::vector<std::string> &dataset_manifest_paths){
+void hold_out_resume(std::string model_name, int num_examples, LayerList &architecture, int num_layers, const Decay &learning_rate_decay, int target_total_epochs, const LazyDataset &dataset, const Loss &loss, const Activation &hidden_activation, const Activation &output_activation, const std::vector<std::string> &class_names, const TrainingSnapshotMetadata &resume_snapshot, const std::vector<std::string> &dataset_manifest_paths){
     require_condition(!resume_snapshot.train_indices.empty(), "Resume hold-out non valido: train_indices assenti nello snapshot");
     require_condition(!resume_snapshot.test_indices.empty(), "Resume hold-out non valido: test_indices assenti nello snapshot");
     require_condition(
@@ -335,14 +335,14 @@ void hold_out_resume(std::string model_name, int num_examples, LayerList &archit
         train_indices,
         architecture, num_layers,
         learning_rate_decay, target_total_epochs, target_loss,
-        input, output,
+        dataset,
         loss, hidden_activation, output_activation,
         momentum,
         &runtime_state
     );
-    TestPerformance performance = run_test(architecture, num_layers, test_indices, input, output, hidden_activation, output_activation);
+    TestPerformance performance = run_test(architecture, num_layers, test_indices, dataset, hidden_activation, output_activation);
 
-    const int num_classes = output[0].height;
+    const int num_classes = dataset.num_classes;
     ReportMetadata report_meta = training_metadata::build_report_metadata(
         model_name, "Hold-out (resume)",
         target_total_epochs, num_examples, num_classes,
@@ -384,7 +384,7 @@ void hold_out_resume(std::string model_name, int num_examples, LayerList &archit
     std::cout << "Snapshot completo di training salvato in: " << training_snapshot_path << std::endl;
 }
 
-void full_training_resume(std::string model_name, int num_examples, LayerList &architecture, int num_layers, const Decay &learning_rate_decay, int target_total_epochs, const Dataset4D &input, const Dataset4D &output, const Loss &loss, const Activation &hidden_activation, const Activation &output_activation, const std::vector<std::string> &class_names, const TrainingSnapshotMetadata &resume_snapshot, const std::vector<std::string> &dataset_manifest_paths){
+void full_training_resume(std::string model_name, int num_examples, LayerList &architecture, int num_layers, const Decay &learning_rate_decay, int target_total_epochs, const LazyDataset &dataset, const Loss &loss, const Activation &hidden_activation, const Activation &output_activation, const std::vector<std::string> &class_names, const TrainingSnapshotMetadata &resume_snapshot, const std::vector<std::string> &dataset_manifest_paths){
     std::vector<int> train_indices;
     if(resume_snapshot.train_indices.empty()){
         train_indices.resize(num_examples);
@@ -417,7 +417,7 @@ void full_training_resume(std::string model_name, int num_examples, LayerList &a
         train_indices,
         architecture, num_layers,
         learning_rate_decay, target_total_epochs, target_loss,
-        input, output,
+        dataset,
         loss, hidden_activation, output_activation,
         momentum,
         &runtime_state

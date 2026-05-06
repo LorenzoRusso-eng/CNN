@@ -45,12 +45,6 @@ const float *lookup_device_mirror(const float *host_ptr, std::size_t required_si
     return found->second.device_ptr;
 }
 
-void check_cublas(cublasStatus_t status, const char *context){
-    if(status != CUBLAS_STATUS_SUCCESS){
-        throw std::runtime_error(std::string(context) + ": cuBLAS error " + std::to_string(static_cast<int>(status)));
-    }
-}
-
 cublasOperation_t to_cublas_op(TransposeOp op){
     return op == TransposeOp::NoTrans ? CUBLAS_OP_N : CUBLAS_OP_T;
 }
@@ -85,6 +79,21 @@ std::size_t physical_matrix_size(TransposeOp trans, int physical_rows_if_no_tran
 void check_cuda(cudaError_t status, const char *context){
     if(status != cudaSuccess){
         throw std::runtime_error(std::string(context) + ": " + cudaGetErrorString(status));
+    }
+}
+
+void check_cuda_kernel(const char *context){
+    const std::string launch_context = std::string(context) + " launch";
+    check_cuda(cudaGetLastError(), launch_context.c_str());
+#ifdef NN_CUDA_SYNC_DEBUG
+    const std::string sync_context = std::string(context) + " execution";
+    check_cuda(cudaDeviceSynchronize(), sync_context.c_str());
+#endif
+}
+
+void check_cublas(cublasStatus_t status, const char *context){
+    if(status != CUBLAS_STATUS_SUCCESS){
+        throw std::runtime_error(std::string(context) + ": cuBLAS error " + std::to_string(static_cast<int>(status)));
     }
 }
 
@@ -248,6 +257,9 @@ void CudaBatchLayerRuntime::clear(){
     conv_im2col.clear();
     backprop_cost_from_next.clear();
     reduction_ones.clear();
+    loss_values.clear();
+    loss_sum.clear();
+    loss_reduce_temp.clear();
     batch_size = 0;
     flat_size = 0;
 }
@@ -308,13 +320,18 @@ void init_cuda_batch_runtime_buffers(const LayerList &architecture, CudaBatchRun
         state.delta.resize(batch_size, layer.dim_layer[0], layer.dim_layer[1], layer.dim_layer[2]);
         state.backprop_cost_from_next.resize(batch_size, layer.dim_layer[0], layer.dim_layer[1], layer.dim_layer[2]);
 
+        if(layer_index + 1 == architecture.size()){
+            state.loss_values.resize(batch_size, layer.dim_layer[0], layer.dim_layer[1], layer.dim_layer[2]);
+            state.loss_sum.resize(1, 1, 1, 1);
+        }
+
         if(uses_activation){
             state.a.resize(batch_size, layer.dim_layer[0], layer.dim_layer[1], layer.dim_layer[2]);
             int ones_count = batch_size;
             if(layer.type == Layer_type::Conv){
                 const int patch_size = layer.kernel_dim[0] * layer.kernel_dim[1] * layer.kernel_dim[2];
                 const int patches_per_sample = layer.dim_layer[0] * layer.dim_layer[1];
-                state.conv_im2col.resize(batch_size, patch_size, layer.input_dim[0] * layer.input_dim[1], 1);
+                state.conv_im2col.resize(batch_size, patch_size, layer.dim_layer[0] * layer.dim_layer[1], 1);
                 ones_count = batch_size * patches_per_sample;
             }
             std::vector<float> ones(static_cast<std::size_t>(ones_count), 1.0f);
