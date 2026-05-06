@@ -153,10 +153,27 @@ struct TrainingSummary{
     std::vector<double> epoch_times_seconds;
     double total_training_seconds = 0.0;
     bool stopped_early = false;
+    bool stopped_by_loss = false;
+    bool stopped_by_validation = false;
+    bool used_validation = false;
+    float best_validation_accuracy = 0.0f;
+    int best_epoch = 0;
+    int epochs_without_significant_improvement = 0;
 };
 
 struct TrainingRuntimeState{
     int completed_epochs = 0;
     std::int64_t optimizer_steps = 0;
     ParameterBuffer velocity;
+    bool validation_observed = false;
+    float best_validation_accuracy = 0.0f;
+    int best_validation_epoch = 0;
+    int epochs_without_significant_improvement = 0;
+};
+
+struct EarlyStoppingConfig{
+    bool enabled = false;
+    int validation_batch_size = 200;
+    float relative_delta_threshold = 0.001f;
+    int patience = 5;
 };

@@ -23,6 +23,29 @@ Il progetto usa CMake, CUDA Runtime e cuBLAS. L'eseguibile finale e' configurato
 - Inference su singola immagine.
 - Report prestazioni in Markdown con metriche e matrice di confusione.
 
+## Validation Ed Early Stopping
+
+Nei metodi hold-out e k-fold il training set viene diviso ulteriormente in train effettivo e validation set, con split stratificato per classe. Il test set resta separato e viene usato solo per la valutazione finale: non guida piu' il training, non seleziona i pesi e non influenza l'early stopping.
+
+Il validation set viene valutato alla fine di ogni epoca con un forward leggero a batch. La validation accuracy guida:
+
+- scelta dei best weights in memoria;
+- conteggio delle epoche senza miglioramento significativo;
+- stop anticipato quando il contatore raggiunge la patience.
+
+Quando la validation accuracy migliora rispetto alla migliore assoluta vista finora, i pesi e la velocity CUDA correnti vengono copiati in buffer `best`. Alla fine del training, se e' stata osservata almeno una validation accuracy, i best weights e la best velocity vengono ripristinati in memoria prima della valutazione finale sul test set.
+
+Default dell'early stopping:
+
+```text
+validation ratio: scelto da CLI per hold-out e k-fold
+patience: 5 epoche
+min delta relativo: 0.001
+validation batch size: 200
+```
+
+Gli snapshot completi di training salvano anche indici di train effettivo, validation e test, stato dell'early stopping, best validation accuracy, best epoch e velocity coerente con i pesi salvati.
+
 ## Requisiti
 
 - CMake 3.20 o superiore.

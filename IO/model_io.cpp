@@ -523,6 +523,12 @@ namespace
         out << "completed_epochs " << metadata.completed_epochs << std::endl;
         out << "optimizer_steps " << metadata.optimizer_steps << std::endl;
         out << "training_finalized " << (metadata.training_finalized ? 1 : 0) << std::endl;
+        out << "training_finalized_by_loss " << (metadata.training_finalized_by_loss ? 1 : 0) << std::endl;
+        out << "training_finalized_by_validation " << (metadata.training_finalized_by_validation ? 1 : 0) << std::endl;
+        out << "validation_observed " << (metadata.validation_observed ? 1 : 0) << std::endl;
+        out << "best_validation_accuracy " << metadata.best_validation_accuracy << std::endl;
+        out << "best_validation_epoch " << metadata.best_validation_epoch << std::endl;
+        out << "epochs_without_significant_improvement " << metadata.epochs_without_significant_improvement << std::endl;
         out << "decay_kind " << decay_kind_to_string(metadata.decay_kind) << std::endl;
         out << "initial_learning_rate " << metadata.initial_learning_rate << std::endl;
         out << "decay_rate " << metadata.decay_rate << std::endl;
@@ -533,9 +539,13 @@ namespace
         out << "loss_reduction " << static_cast<int>(metadata.loss_reduction) << std::endl;
         out << "loss_beta " << metadata.loss_beta << std::endl;
         out << "hold_out_ratio " << metadata.hold_out_ratio << std::endl;
+        out << "validation_ratio " << metadata.validation_ratio << std::endl;
+        out << "early_stopping_patience " << metadata.early_stopping_patience << std::endl;
+        out << "early_stopping_relative_delta_threshold " << metadata.early_stopping_relative_delta_threshold << std::endl;
         out << "k_folds " << metadata.k_folds << std::endl;
         write_int_vector(out, "train_indices", metadata.train_indices);
         write_int_vector(out, "test_indices", metadata.test_indices);
+        write_int_vector(out, "validation_indices", metadata.validation_indices);
         write_string_vector(out, "dataset_manifest_paths", "dataset_manifest_path", metadata.dataset_manifest_paths);
         out << "shuffle_rng_state " << metadata.shuffle_rng_state << std::endl;
         write_velocity(out, architecture, metadata.optimizer_velocity);
@@ -750,30 +760,31 @@ void load_training_snapshot(const fs::path &file_path, LayerList &architecture, 
     expect_token(in, "optimizer_steps");
     in >> metadata.optimizer_steps;
 
-    std::string next_token;
-    in >> next_token;
-    if(!in.good()){
-        throw std::invalid_argument("Formato training snapshot non valido dopo optimizer_steps");
-    }
+    expect_token(in, "training_finalized");
+    int training_finalized_int = 0;
+    in >> training_finalized_int;
+    metadata.training_finalized = (training_finalized_int != 0);
+    expect_token(in, "training_finalized_by_loss");
+    int training_finalized_by_loss_int = 0;
+    in >> training_finalized_by_loss_int;
+    metadata.training_finalized_by_loss = (training_finalized_by_loss_int != 0);
+    expect_token(in, "training_finalized_by_validation");
+    int training_finalized_by_validation_int = 0;
+    in >> training_finalized_by_validation_int;
+    metadata.training_finalized_by_validation = (training_finalized_by_validation_int != 0);
 
-    if(next_token == "training_finalized"){
-        int training_finalized_int = 0;
-        in >> training_finalized_int;
-        if(!in.good()){
-            throw std::invalid_argument("Formato training snapshot non valido durante la lettura di training_finalized");
-        }
-        metadata.training_finalized = (training_finalized_int != 0);
-        in >> next_token;
-        if(!in.good()){
-            throw std::invalid_argument("Formato training snapshot non valido dopo training_finalized");
-        }
-    } else {
-        metadata.training_finalized = false;
-    }
+    expect_token(in, "validation_observed");
+    int validation_observed_int = 0;
+    in >> validation_observed_int;
+    metadata.validation_observed = (validation_observed_int != 0);
+    expect_token(in, "best_validation_accuracy");
+    in >> metadata.best_validation_accuracy;
+    expect_token(in, "best_validation_epoch");
+    in >> metadata.best_validation_epoch;
+    expect_token(in, "epochs_without_significant_improvement");
+    in >> metadata.epochs_without_significant_improvement;
 
-    if(next_token != "decay_kind"){
-        throw std::invalid_argument("Formato training snapshot non valido: atteso token 'decay_kind'");
-    }
+    expect_token(in, "decay_kind");
     std::string decay_kind_text;
     in >> decay_kind_text;
     metadata.decay_kind = decay_kind_from_string(decay_kind_text);
@@ -808,35 +819,25 @@ void load_training_snapshot(const fs::path &file_path, LayerList &architecture, 
     expect_token(in, "loss_beta");
     in >> metadata.loss_beta;
 
-    in >> next_token;
-    if(!in.good()){
-        throw std::invalid_argument("Formato training snapshot non valido dopo loss_beta");
-    }
-    if(next_token == "hold_out_ratio"){
-        in >> metadata.hold_out_ratio;
-        if(!in.good()){
-            throw std::invalid_argument("Formato training snapshot non valido durante la lettura di hold_out_ratio");
-        }
-    } else {
-        metadata.hold_out_ratio = 0.0f;
-        if(next_token != "k_folds"){
-            throw std::invalid_argument("Formato training snapshot non valido: atteso token 'hold_out_ratio' o 'k_folds'");
-        }
-    }
-
-    if(next_token == "hold_out_ratio"){
-        expect_token(in, "k_folds");
-        in >> metadata.k_folds;
-    } else {
-        in >> metadata.k_folds;
-    }
+    expect_token(in, "hold_out_ratio");
+    in >> metadata.hold_out_ratio;
+    expect_token(in, "validation_ratio");
+    in >> metadata.validation_ratio;
+    expect_token(in, "early_stopping_patience");
+    in >> metadata.early_stopping_patience;
+    expect_token(in, "early_stopping_relative_delta_threshold");
+    in >> metadata.early_stopping_relative_delta_threshold;
+    expect_token(in, "k_folds");
+    in >> metadata.k_folds;
 
     read_int_vector(in, "train_indices", metadata.train_indices);
     read_int_vector(in, "test_indices", metadata.test_indices);
+    read_int_vector(in, "validation_indices", metadata.validation_indices);
 
+    std::string next_token;
     in >> next_token;
     if(!in.good()){
-        throw std::invalid_argument("Formato training snapshot non valido dopo test_indices");
+        throw std::invalid_argument("Formato training snapshot non valido dopo validation_indices");
     }
 
     if(next_token == "dataset_manifest_paths"){

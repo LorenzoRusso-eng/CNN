@@ -52,7 +52,7 @@ namespace{
         out << "# Performance Report - " << meta.model_name << " (" << meta.run_type << ")" << std::endl << std::endl;
     }
 
-    void write_general_info_hold_out(std::ostream &out, const ReportMetadata &meta, int train_examples, int test_examples){
+    void write_general_info_hold_out(std::ostream &out, const ReportMetadata &meta, int train_examples, int validation_examples, int test_examples){
         out << "## General Information" << std::endl;
         out << "| Field | Value |" << std::endl;
         out << "|---|---|" << std::endl;
@@ -60,11 +60,13 @@ namespace{
         out << "| Run Type | " << meta.run_type << " |" << std::endl;
         out << "| Dataset | " << meta.dataset_description << " |" << std::endl;
         out << "| Total Examples | " << meta.total_examples << " |" << std::endl;
-        out << "| Train Examples | " << train_examples << " |" << std::endl;
+        out << "| Train Effective Examples | " << train_examples << " |" << std::endl;
+        out << "| Validation Examples | " << validation_examples << " |" << std::endl;
         out << "| Test Examples | " << test_examples << " |" << std::endl;
         out << "| Num Classes | " << meta.num_classes << " |" << std::endl;
         out << "| Requested Epochs | " << meta.requested_epochs << " |" << std::endl;
         out << "| Hold-out Ratio | " << meta.hold_out_ratio << " |" << std::endl;
+        out << "| Validation Ratio | " << meta.validation_ratio << " |" << std::endl;
         out << std::endl;
     }
 
@@ -79,6 +81,8 @@ namespace{
         out << "| Num Classes | " << meta.num_classes << " |" << std::endl;
         out << "| Requested Epochs (per fold) | " << meta.requested_epochs << " |" << std::endl;
         out << "| k_folds | " << meta.k_folds << " |" << std::endl;
+        out << "| Internal Validation | " << (meta.validation_ratio > 0.0f ? "Yes" : "No") << " |" << std::endl;
+        out << "| Validation Ratio | " << meta.validation_ratio << " |" << std::endl;
         out << std::endl;
     }
 
@@ -133,6 +137,14 @@ namespace{
         out << "| Final Loss | " << summary.final_loss << " |" << std::endl;
         out << "| Total Training Seconds | " << summary.total_training_seconds << " |" << std::endl;
         out << "| Avg Epoch Seconds | " << avg_epoch_time << " |" << std::endl;
+        out << "| Stopped By Loss | " << bool_to_yes_no(summary.stopped_by_loss) << " |" << std::endl;
+        out << "| Stopped By Validation Patience | " << bool_to_yes_no(summary.stopped_by_validation) << " |" << std::endl;
+        out << "| Used Validation | " << bool_to_yes_no(summary.used_validation) << " |" << std::endl;
+        if(summary.used_validation){
+            out << "| Best Validation Accuracy | " << summary.best_validation_accuracy << " |" << std::endl;
+            out << "| Best Validation Epoch | " << summary.best_epoch << " |" << std::endl;
+            out << "| Epochs Without Significant Improvement | " << summary.epochs_without_significant_improvement << " |" << std::endl;
+        }
         out << std::endl;
 
         out << "### Epoch Times" << std::endl;
@@ -211,7 +223,7 @@ namespace{
     }
 }
 
-void write_performance_report_hold_out(const std::filesystem::path &file_path, const ReportMetadata &meta, const TrainingSummary &training_summary, const TestPerformance &perf, const LayerList &architecture, int num_layers, int train_examples, int test_examples){
+void write_performance_report_hold_out(const std::filesystem::path &file_path, const ReportMetadata &meta, const TrainingSummary &training_summary, const TestPerformance &perf, const LayerList &architecture, int num_layers, int train_examples, int validation_examples, int test_examples){
     std::ofstream out(file_path);
     if(!out.good()){
         throw std::runtime_error("Impossibile creare il file performance: " + file_path.string());
@@ -220,7 +232,7 @@ void write_performance_report_hold_out(const std::filesystem::path &file_path, c
     out << std::fixed << std::setprecision(7);
 
     write_report_title(out, meta);
-    write_general_info_hold_out(out, meta, train_examples, test_examples);
+    write_general_info_hold_out(out, meta, train_examples, validation_examples, test_examples);
     write_network_config_table(out, architecture, num_layers);
     write_training_config_table(out, meta);
     write_training_results_table(out, training_summary);
@@ -230,7 +242,7 @@ void write_performance_report_hold_out(const std::filesystem::path &file_path, c
     write_aggregate_metrics_table(out, perf);
 }
 
-void write_performance_report_k_fold(const std::filesystem::path &file_path, const ReportMetadata &meta, const std::vector<TrainingSummary> &training_summaries, const std::vector<TestPerformance> &performances, const LayerList &architecture, int num_layers){
+void write_performance_report_k_fold(const std::filesystem::path &file_path, const ReportMetadata &meta, const std::vector<TrainingSummary> &training_summaries, const std::vector<TestPerformance> &performances, const std::vector<int> &train_examples_by_fold, const std::vector<int> &validation_examples_by_fold, const LayerList &architecture, int num_layers){
     std::ofstream out(file_path);
     if(!out.good()){
         throw std::runtime_error("Impossibile creare il file performance: " + file_path.string());
@@ -252,13 +264,15 @@ void write_performance_report_k_fold(const std::filesystem::path &file_path, con
     for(int k = 0; k < meta.k_folds; k++){
         const TestPerformance &perf = performances[k];
         const TrainingSummary &train_sum = training_summaries[k];
-        const int train_examples = meta.total_examples - perf.test_count;
+        const int train_examples = train_examples_by_fold[k];
+        const int validation_examples = validation_examples_by_fold[k];
 
         out << "## Fold " << (k + 1) << std::endl << std::endl;
 
         out << "| Field | Value |" << std::endl;
         out << "|---|---|" << std::endl;
-        out << "| Train Examples | " << train_examples << " |" << std::endl;
+        out << "| Train Effective Examples | " << train_examples << " |" << std::endl;
+        out << "| Validation Examples | " << validation_examples << " |" << std::endl;
         out << "| Test Examples | " << perf.test_count << " |" << std::endl;
         out << std::endl;
 

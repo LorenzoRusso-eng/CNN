@@ -256,7 +256,6 @@ void CudaBatchLayerRuntime::clear(){
     pooling_argmax.clear();
     conv_im2col.clear();
     backprop_cost_from_next.clear();
-    reduction_ones.clear();
     loss_values.clear();
     loss_sum.clear();
     loss_reduce_temp.clear();
@@ -334,8 +333,10 @@ void init_cuda_batch_runtime_buffers(const LayerList &architecture, CudaBatchRun
                 state.conv_im2col.resize(batch_size, patch_size, layer.dim_layer[0] * layer.dim_layer[1], 1);
                 ones_count = batch_size * patches_per_sample;
             }
-            std::vector<float> ones(static_cast<std::size_t>(ones_count), 1.0f);
-            state.reduction_ones.copy_from_host(ones.data(), 1, ones_count, 1, 1);
+            if(state.reduction_ones.size() != static_cast<std::size_t>(ones_count)){
+                std::vector<float> ones(static_cast<std::size_t>(ones_count), 1.0f);
+                state.reduction_ones.copy_from_host(ones.data(), 1, ones_count, 1, 1);
+            }
         }
 
         if(layer.type == Layer_type::Pooling && layer.pooling_type == Pooling_type::Max){
@@ -403,6 +404,34 @@ void zero_cuda_parameter_buffer(const LayerList &architecture, CudaParameterBuff
         } else if(layer.type == Layer_type::Conv){
             check_cuda(cudaMemset(buffer.conv_weights[layer_index].data(), 0, buffer.conv_weights[layer_index].size() * sizeof(float)), "cudaMemset Conv Weights");
             check_cuda(cudaMemset(buffer.conv_biases[layer_index].data(), 0, buffer.conv_biases[layer_index].size() * sizeof(float)), "cudaMemset Conv Biases");
+        }
+    }
+}
+
+void copy_cuda_parameter_buffer(const LayerList &architecture, const CudaParameterBuffer &src, CudaParameterBuffer &dst){
+    if(dst.dense_weights.size() != architecture.size() ||
+       dst.dense_biases.size() != architecture.size() ||
+       dst.conv_weights.size() != architecture.size() ||
+       dst.conv_biases.size() != architecture.size()){
+        init_cuda_parameter_buffer(architecture, dst);
+    }
+
+    for(std::size_t layer_index = 0; layer_index < architecture.size(); layer_index++){
+        const Layer &layer = architecture[layer_index];
+        if(layer.type == Layer_type::Dense){
+            dst.dense_weights[layer_index].copy_from_device(src.dense_weights[layer_index]);
+            dst.dense_biases[layer_index].copy_from_device(src.dense_biases[layer_index]);
+        } else {
+            dst.dense_weights[layer_index].clear();
+            dst.dense_biases[layer_index].clear();
+        }
+
+        if(layer.type == Layer_type::Conv){
+            dst.conv_weights[layer_index].copy_from_device(src.conv_weights[layer_index]);
+            dst.conv_biases[layer_index].copy_from_device(src.conv_biases[layer_index]);
+        } else {
+            dst.conv_weights[layer_index].clear();
+            dst.conv_biases[layer_index].clear();
         }
     }
 }

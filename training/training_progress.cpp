@@ -33,13 +33,20 @@ bool should_stop_training(float target_loss, float loss){
     return false;
 }
 
-TrainingSummary make_summary(int executed_epochs, float final_loss, const std::vector<double> &epoch_times_seconds, double total_training_seconds, bool stopped_early){
+
+TrainingSummary make_summary(int executed_epochs, float final_loss, const std::vector<double> &epoch_times_seconds, double total_training_seconds, bool stopped_by_loss, bool stopped_by_validation, const ValidationTracker &validation_tracker){
     TrainingSummary summary{};
     summary.epochs_completed = executed_epochs;
     summary.final_loss = final_loss;
     summary.epoch_times_seconds = epoch_times_seconds;
     summary.total_training_seconds = total_training_seconds;
-    summary.stopped_early = stopped_early;
+    summary.stopped_by_loss = stopped_by_loss;
+    summary.stopped_by_validation = stopped_by_validation;
+    summary.stopped_early = stopped_by_loss || stopped_by_validation;
+    summary.used_validation = validation_tracker.enabled;
+    summary.best_validation_accuracy = validation_tracker.best_accuracy;
+    summary.best_epoch = validation_tracker.best_epoch;
+    summary.epochs_without_significant_improvement = validation_tracker.epochs_without_significant_improvement;
     return summary;
 }
 

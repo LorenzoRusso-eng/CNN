@@ -104,7 +104,7 @@ ReportMetadata build_report_metadata(const std::string &model_name, const std::s
     return meta;
 }
 
-TrainingSnapshotMetadata build_training_snapshot_metadata(const std::string &model_name, int training_method, int training_type, int window, bool use_nesterov, float momentum, float target_loss, int requested_epochs, const Decay &learning_rate_decay, const Loss &loss, const TrainingRuntimeState &runtime_state, bool training_finalized){
+TrainingSnapshotMetadata build_training_snapshot_metadata(const std::string &model_name, int training_method, int training_type, int window, bool use_nesterov, float momentum, float target_loss, int requested_epochs, const Decay &learning_rate_decay, const Loss &loss, const TrainingRuntimeState &runtime_state, bool finalized_by_loss, bool finalized_by_validation){
     TrainingSnapshotMetadata metadata{};
     metadata.model_name = model_name;
     metadata.training_method = training_method;
@@ -116,7 +116,13 @@ TrainingSnapshotMetadata build_training_snapshot_metadata(const std::string &mod
     metadata.requested_epochs = requested_epochs;
     metadata.completed_epochs = runtime_state.completed_epochs;
     metadata.optimizer_steps = runtime_state.optimizer_steps;
-    metadata.training_finalized = training_finalized;
+    metadata.training_finalized_by_loss = finalized_by_loss;
+    metadata.training_finalized_by_validation = finalized_by_validation;
+    metadata.training_finalized = finalized_by_loss || finalized_by_validation;
+    metadata.validation_observed = runtime_state.validation_observed;
+    metadata.best_validation_accuracy = runtime_state.best_validation_accuracy;
+    metadata.best_validation_epoch = runtime_state.best_validation_epoch;
+    metadata.epochs_without_significant_improvement = runtime_state.epochs_without_significant_improvement;
     metadata.optimizer_velocity = runtime_state.velocity;
     metadata.decay_kind = learning_rate_decay.kind();
     metadata.initial_learning_rate = learning_rate_decay.initial_lr();

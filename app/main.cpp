@@ -161,9 +161,12 @@ void run_training_mode(){
         load_training_snapshot(snapshot_path_str, architecture, class_names, hidden_activation_name, output_activation_name, resume_snapshot);
         const int num_layers = static_cast<int>(architecture.size());
         validate_architecture(architecture, num_layers, "Resume training");
+        const std::string finalized_reason = resume_snapshot.training_finalized_by_validation
+            ? "validation"
+            : "loss";
         require_condition(
             !resume_snapshot.training_finalized,
-            "Resume non consentito: lo snapshot e' stato marcato come training finalizzato (stop intra-epoca)."
+            "Resume non consentito: lo snapshot e' stato marcato come training finalizzato per " + finalized_reason + "."
         );
 
         int dim_input[3] = {
@@ -257,6 +260,7 @@ void run_training_mode(){
     int training_type = 1;
     int training_method = 1;
     float hold_out_ratio = 0.7f;
+    float validation_ratio = 0.0f;
     int k_folds;
 
     LazyDataset dataset;
@@ -327,6 +331,12 @@ void run_training_mode(){
             1.0f - std::numeric_limits<float>::epsilon(),
             "Inserire un valore decimale compreso tra 0 e 1, estremi esclusi."
         );
+        validation_ratio = read_bounded_float(
+            "Scegliere il rapporto di validation interno al training set in forma decimale (maggiore di 0 e minore di 1)",
+            std::numeric_limits<float>::epsilon(),
+            1.0f - std::numeric_limits<float>::epsilon(),
+            "Inserire un valore decimale compreso tra 0 e 1, estremi esclusi."
+        );
         hold_out(
             model_name, num_examples,
             training_type, use_nesterov,
@@ -334,7 +344,7 @@ void run_training_mode(){
             learning_rate_decay, num_epochs, target_loss,
             dataset,
             loss, hidden_activation, output_activation,
-            momentum, hold_out_ratio,
+            momentum, hold_out_ratio, validation_ratio,
             class_names, dataset_manifest_paths
         );
         break;
@@ -345,6 +355,12 @@ void run_training_mode(){
             std::numeric_limits<int>::max(),
             "Inserire un intero maggiore o uguale a 2."
         );
+        validation_ratio = read_bounded_float(
+            "Scegliere il rapporto di validation interno al training set in forma decimale (maggiore di 0 e minore di 1)",
+            std::numeric_limits<float>::epsilon(),
+            1.0f - std::numeric_limits<float>::epsilon(),
+            "Inserire un valore decimale compreso tra 0 e 1, estremi esclusi."
+        );
         k_fold(
             model_name, k_folds, num_examples,
             training_type, use_nesterov,
@@ -353,6 +369,7 @@ void run_training_mode(){
             dataset,
             loss, hidden_activation, output_activation,
             momentum,
+            validation_ratio,
             class_names
         );
         break;

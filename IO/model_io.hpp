@@ -24,6 +24,12 @@ struct TrainingSnapshotMetadata{
     int completed_epochs = 0;
     long long optimizer_steps = 0;
     bool training_finalized = false;
+    bool training_finalized_by_loss = false;
+    bool training_finalized_by_validation = false;
+    bool validation_observed = false;
+    float best_validation_accuracy = 0.0f;
+    int best_validation_epoch = 0;
+    int epochs_without_significant_improvement = 0;
 
     DecayKind decay_kind = DecayKind::Constant;
     float initial_learning_rate = 0.0f;
@@ -37,9 +43,13 @@ struct TrainingSnapshotMetadata{
     float loss_beta = 1.0f;
 
     float hold_out_ratio = 0.0f;
+    float validation_ratio = 0.0f;
+    int early_stopping_patience = 0;
+    float early_stopping_relative_delta_threshold = 0.0f;
     int k_folds = 0;
     std::vector<int> train_indices;
     std::vector<int> test_indices;
+    std::vector<int> validation_indices;
     std::vector<std::string> dataset_manifest_paths;
     std::string shuffle_rng_state;
     ParameterBuffer optimizer_velocity;
