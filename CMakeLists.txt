@@ -22,7 +22,6 @@ option(NN_ENABLE_NATIVE_ARCH "Enable -march=native when supported" ON)
 option(NN_ENABLE_LTO "Enable link-time optimization when supported" ON)
 option(NN_ENABLE_WARNINGS "Enable useful compiler warnings" ON)
 option(NN_ENABLE_MSVC_AVX2 "Enable /arch:AVX2 with MSVC" ON)
-set(NN_OPENBLAS_NUM_THREADS "1" CACHE STRING "Numero di thread OpenBLAS da impostare a runtime")
 set(NN_BINARY_NAME "NN_op" CACHE STRING "Nome del binario compilato")
 
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND NN_ENABLE_LTO)
@@ -75,7 +74,6 @@ add_executable(NN_multithread_batch_optimized
 set_target_properties(NN_multithread_batch_optimized PROPERTIES OUTPUT_NAME "${NN_BINARY_NAME}")
 
 target_include_directories(NN_multithread_batch_optimized PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-target_compile_options(NN_multithread_batch_optimized PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/Zc:preprocessor>)
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     if(NN_ENABLE_WARNINGS)
@@ -93,6 +91,8 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
 endif()
 
 if(MSVC)
+    target_compile_options(NN_multithread_batch_optimized PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/Zc:preprocessor>)
+
     if(NN_ENABLE_WARNINGS)
         target_compile_options(NN_multithread_batch_optimized PRIVATE $<$<COMPILE_LANGUAGE:CXX>:/W4 /permissive->)
     endif()
