@@ -11,6 +11,7 @@
 #include "IO/report_io.hpp"
 #include "shared/network_globals.hpp"
 #include "training/training_method.hpp"
+#include "IO/layer_text_codec.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -192,51 +193,131 @@ void run_inference_mode(){
     const int input_h = architecture[0].dim_layer[0];
     const int input_w = architecture[0].dim_layer[1];
     const int input_c = architecture[0].dim_layer[2];
+    int go = 1;
 
-    std::string image_path_str;
-    std::cout << "Inserire il percorso dell'immagine da classificare" << std::endl;
-    std::getline(std::cin, image_path_str);
-    require_condition(!is_blank_string(image_path_str), "Percorso immagine vuoto");
+    std::cout << "La struttura caricata è la seguente:" << std::endl;
+    for(int l = 0; l < num_layers; l++){
+        std::cout << "layer " << l +1 << ":";
+        std::cout << layer_text::layer_type_to_string(architecture[l].type) << "; ";
+    }
+    std::cout << std::endl;
 
-    const Tensor image = load_01scaled_image_tensor(image_path_str, input_h, input_w, input_c);
-    validate_tensor_shape(image, architecture[0].dim_layer, "Inference image");
+    while(go){
 
-    require_condition(!hidden_activation_name.empty(), "Snapshot senza attivazione hidden salvata");
-    require_condition(!output_activation_name.empty(), "Snapshot senza attivazione output salvata");
-    const Activation &hidden_activation = activation_from_snapshot_name(hidden_activation_name);
-    const Activation &output_activation = activation_from_snapshot_name(output_activation_name);
-    std::cout << "Attivazioni caricate dallo snapshot: hidden=" << hidden_activation_name << " output=" << output_activation_name << std::endl;
+        std::string image_path_str;
+        std::cout << "Inserire il percorso dell'immagine da classificare" << std::endl;
+        std::getline(std::cin, image_path_str);
+        require_condition(!is_blank_string(image_path_str), "Percorso immagine vuoto");
 
-    cuda_backend::CudaParameterBuffer parameters;
-    cuda_backend::CudaBatchRuntimeList runtime;
-    cuda_backend::init_cuda_parameter_buffer(architecture, parameters);
-    cuda_backend::sync_cuda_parameters_from_cpu(architecture, parameters);
+        const Tensor image = load_01scaled_image_tensor(image_path_str, input_h, input_w, input_c);
+        validate_tensor_shape(image, architecture[0].dim_layer, "Inference image");
 
-    cuda_backend::init_cuda_forward_batch_runtime_buffers(architecture, runtime, 1);
-    feed_input_tensor(image, architecture[0], runtime[0]);
-    forwardprop_batch(architecture, runtime, num_layers, parameters, hidden_activation, output_activation);
+        require_condition(!hidden_activation_name.empty(), "Snapshot senza attivazione hidden salvata");
+        require_condition(!output_activation_name.empty(), "Snapshot senza attivazione output salvata");
+        const Activation &hidden_activation = activation_from_snapshot_name(hidden_activation_name);
+        const Activation &output_activation = activation_from_snapshot_name(output_activation_name);
+        std::cout << "Attivazioni caricate dallo snapshot: hidden=" << hidden_activation_name << " output=" << output_activation_name << std::endl;
 
-    const int flat_size = architecture[num_layers - 1].flat_output_size();
-    std::vector<float> output_values(static_cast<std::size_t>(flat_size));
-    runtime[num_layers - 1].y.copy_to_host(output_values.data(), output_values.size());
+        cuda_backend::CudaParameterBuffer parameters;
+        cuda_backend::CudaBatchRuntimeList runtime;
+        cuda_backend::init_cuda_parameter_buffer(architecture, parameters);
+        cuda_backend::sync_cuda_parameters_from_cpu(architecture, parameters);
 
-    int predicted_class = 0;
-    float best_value = output_values[0];
-    for(int c = 1; c < flat_size; c++){
-        const float value = output_values[static_cast<std::size_t>(c)];
-        if(value > best_value){
-            best_value = value;
-            predicted_class = c;
+        cuda_backend::init_cuda_forward_batch_runtime_buffers(architecture, runtime, 1);
+        feed_input_tensor(image, architecture[0], runtime[0]);
+        forwardprop_batch(architecture, runtime, num_layers, parameters, hidden_activation, output_activation);
+
+        int obs = read_bounded_int("Osservare l'output di un layer? (0 = no, 1 = si)", 0, 1);
+
+        while(obs){
+            int l = read_bounded_int("Quale layer si vuole osservare?", 1, num_layers);
+
+            std::vector<float> observed(static_cast<std::size_t>(architecture[l-1].flat_output_size()));
+
+            runtime[l - 1].y.copy_to_host(observed.data(), observed.size());
+
+            if(architecture[l - 1].type == Layer_type::Conv){
+                std::cout << "Leggendo l'output prima dell'attivazione";
+                runtime[l - 1].a.copy_to_host(observed.data(), observed.size());
+                int filter_go = 1;
+                while(filter_go){
+                    int f = read_bounded_int("Quale canale si vuole osservare", 1, architecture[l - 1].dim_layer[2]);
+                    for(int i = 0; i < architecture[l - 1].dim_layer[0]; i++){
+                        for(int j = 0; j < architecture[l - 1].dim_layer[1]; j++){
+                            std:: cout << observed[(i * architecture[l - 1].dim_layer[1] + j) * architecture[l - 1].dim_layer[2] + f -1] << "  ";
+                        }
+                        std::cout << std::endl;
+                    }
+                    int stamp = read_bounded_int("Salvare questo canale come immagine? (0 = no, 1 = si)", 0, 1);
+                    if(stamp){
+                        std::string output_path_str;
+                        std::cout << "Inserire il percorso PNG di output" << std::endl;
+                        std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+                        std::getline(std::cin, output_path_str);
+                        require_condition(!is_blank_string(output_path_str), "Percorso output vuoto");
+                        save_activation_channel_png(
+                            output_path_str, observed,
+                            architecture[l - 1].dim_layer[0], architecture[l - 1].dim_layer[1], architecture[l - 1].dim_layer[2],
+                            f - 1
+                        );
+                        std::cout << "Immagine salvata in: " << output_path_str << std::endl;
+                    }
+
+                    filter_go = read_bounded_int("Osservare un altro canale? (0 = no, 1 = si)", 0, 1);
+                }
+            }
+            else if(architecture[l - 1].type == Layer_type::Pooling){
+                int channel_go = 1;
+                while(channel_go){
+                    int ch = read_bounded_int("Quale canale si vuole osservare", 1, architecture[l - 1].dim_layer[2]);
+                    for(int i = 0; i < architecture[l - 1].dim_layer[0]; i++){
+                        for(int j = 0; j < architecture[l - 1].dim_layer[1]; j++){
+                            std:: cout << observed[(i * architecture[l - 1].dim_layer[1] + j) * architecture[l - 1].dim_layer[2] + ch - 1] << "  ";
+                        }
+                        std::cout << std::endl;
+                    }
+
+                    channel_go = read_bounded_int("Osservare un altro canale? (0 = no, 1 = si)", 0, 1);
+                }
+            }
+
+            else{
+                for(int i = 0; i < architecture[l -1].flat_output_size(); i++){
+                    std:: cout << observed[i] << std::endl;
+                }
+            }
+
+            obs = read_bounded_int("Continuare a osservare altri layer? (0 = no, 1 = si)", 0, 1);
+
         }
-    }
-    const float confidence = output_values[static_cast<std::size_t>(predicted_class)];
 
-    std::cout << "Classe predetta (indice): " << predicted_class << std::endl;
-    std::cout << "Confidenza: " << confidence << std::endl;
+        const int flat_size = architecture[num_layers - 1].flat_output_size();
+        std::vector<float> output_values(static_cast<std::size_t>(flat_size));
+        runtime[num_layers - 1].y.copy_to_host(output_values.data(), output_values.size());
 
-    if(!class_names.empty() && static_cast<int>(class_names.size()) == flat_size){
-        std::cout << "Classe predetta (nome): " << class_names[predicted_class] << std::endl;
-    }
+        int predicted_class = 0;
+        float best_value = output_values[0];
+        for(int c = 1; c < flat_size; c++){
+            const float value = output_values[static_cast<std::size_t>(c)];
+            if(value > best_value){
+                best_value = value;
+                predicted_class = c;
+            }
+        }
+        const float confidence = output_values[static_cast<std::size_t>(predicted_class)];
+
+        std::cout << "Classe predetta (indice): " << predicted_class << std::endl;
+        std::cout << "Confidenza: " << confidence << std::endl;
+
+        if(!class_names.empty() && static_cast<int>(class_names.size()) == flat_size){
+            std::cout << "Classe predetta (nome): " << class_names[predicted_class] << std::endl;
+        }
+
+        go = read_bounded_int("Continuare? (0 = no, 1 = si)", 0, 1);
+        if(go){
+            std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+        }
+}
 }
 
 } // namespace
