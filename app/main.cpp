@@ -251,7 +251,7 @@ void run_inference_mode(){
                     int stamp = read_bounded_int("Salvare questo canale come immagine? (0 = no, 1 = si)", 0, 1);
                     if(stamp){
                         std::string output_path_str;
-                        std::cout << "Inserire il percorso PNG di output" << std::endl;
+                        std::cout << "Inserire il percorso PNG di output (includere nome del file e .png finale)" << std::endl;
                         std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
                         std::getline(std::cin, output_path_str);
                         require_condition(!is_blank_string(output_path_str), "Percorso output vuoto");
