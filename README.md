@@ -1,6 +1,6 @@
 # CNN CUDA
 
-Implementazione in C++20/CUDA di una rete neurale convoluzionale configurabile da CLI, con training, resume da snapshot e inference su immagini.
+Implementazione in C++20/CUDA di una rete neurale convoluzionale configurabile da CLI, con training e inference su immagini.
 
 Il progetto usa CMake, CUDA Runtime e cuBLAS. L'eseguibile finale e' configurato di default con nome `NN_op`.
 
@@ -18,8 +18,7 @@ Il progetto usa CMake, CUDA Runtime e cuBLAS. L'eseguibile finale e' configurato
   - full training.
 - Momentum e Nesterov Accelerated Gradient.
 - Learning rate decay: costante, esponenziale, time-based, step e cosine annealing.
-- Salvataggio di snapshot del modello e snapshot completi di training.
-- Resume del training da snapshot per hold-out e full training.
+- Salvataggio di snapshot del modello.
 - Inference su singola immagine.
 - Report prestazioni in Markdown con metriche e matrice di confusione.
 
@@ -43,8 +42,6 @@ patience: 5 epoche
 min delta relativo: 0.001
 validation batch size: 200
 ```
-
-Gli snapshot completi di training salvano anche indici di train effettivo, validation e test, stato dell'early stopping, best validation accuracy, best epoch e velocity coerente con i pesi salvati.
 
 ## Requisiti
 
@@ -130,14 +127,7 @@ Selezionare modalita': 1=Training 2=Inference
 
 ### Training
 
-In modalita' training si puo' scegliere tra:
-
-```text
-1 = Nuovo training
-2 = Resume da training snapshot
-```
-
-Per un nuovo training il programma richiede:
+In modalita' training il programma richiede:
 
 - nome del modello;
 - percorso del dataset;
@@ -187,27 +177,9 @@ Dopo il training vengono creati file nella directory di esecuzione:
 ```text
 network_performance_report_<nome_modello>.md
 trained_model_<nome_modello>_snapshot.txt
-trained_model_<nome_modello>_training_snapshot.txt
 ```
 
 Il file `trained_model_<nome_modello>_snapshot.txt` contiene architettura e pesi ed e' usato per l'inference.
-
-Il file `trained_model_<nome_modello>_training_snapshot.txt` contiene anche i metadata necessari per riprendere il training.
-
-## Resume Del Training
-
-Il resume richiede uno snapshot completo di training:
-
-```text
-trained_model_<nome_modello>_training_snapshot.txt
-```
-
-Il dataset viene ricostruito dal manifest salvato nello snapshot, quando disponibile. In caso contrario, il programma richiede nuovamente il percorso del dataset e verifica compatibilita' di shape e classi.
-
-Il resume e' supportato per:
-
-- hold-out;
-- full training.
 
 ## Note Per Git
 
