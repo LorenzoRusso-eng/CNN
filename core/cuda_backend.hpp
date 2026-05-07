@@ -116,7 +116,6 @@ void init_cuda_runtime_buffers(const LayerList &architecture, CudaRuntimeList &r
 void init_cuda_batch_runtime_buffers(const LayerList &architecture, CudaBatchRuntimeList &runtime, int batch_size);
 void init_cuda_forward_batch_runtime_buffers(const LayerList &architecture, CudaBatchRuntimeList &runtime, int batch_size);
 void init_cuda_parameter_buffer(const LayerList &architecture, CudaParameterBuffer &buffer);
-void init_or_load_velocity(const LayerList &architecture, CudaParameterBuffer &velocity, const TrainingRuntimeState *runtime_state);
 void zero_cuda_parameter_buffer(const LayerList &architecture, CudaParameterBuffer &buffer);
 void copy_cuda_parameter_buffer(const LayerList &architecture, const CudaParameterBuffer &src, CudaParameterBuffer &dst);
 void sync_cuda_parameters_from_cpu(const LayerList &architecture, CudaParameterBuffer &buffer);

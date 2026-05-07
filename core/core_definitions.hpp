@@ -4,7 +4,6 @@
 
 #include <algorithm>
 #include <cstddef>
-#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -158,16 +157,6 @@ struct TrainingSummary{
     bool used_validation = false;
     float best_validation_accuracy = 0.0f;
     int best_epoch = 0;
-    int epochs_without_significant_improvement = 0;
-};
-
-struct TrainingRuntimeState{
-    int completed_epochs = 0;
-    std::int64_t optimizer_steps = 0;
-    ParameterBuffer velocity;
-    bool validation_observed = false;
-    float best_validation_accuracy = 0.0f;
-    int best_validation_epoch = 0;
     int epochs_without_significant_improvement = 0;
 };
 
