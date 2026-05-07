@@ -12,7 +12,6 @@ void backprop_batch(
     cuda_backend::CudaParameterBuffer &gradients,
     const cuda_backend::CudaParameterBuffer &cuda_params,
     const Loss &loss,
-    float &loss_value,
     const cuda_backend::CudaBatchTensor<float> &desired_output,
     const Activation &hidden_activation,
     const Activation &output_activation,

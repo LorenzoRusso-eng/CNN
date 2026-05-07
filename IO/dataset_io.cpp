@@ -195,14 +195,15 @@ void get_example(
         if(image_height != dataset.input_shape[0] || image_width != dataset.input_shape[1]){
             throw std::invalid_argument("Dimensioni immagine non valide per " + image_path.string());
         }
-        dataset.samples.push_back(DatasetSample{image_path.lexically_normal().generic_string(), class_index});
+        const fs::path absolute_image_path = fs::absolute(image_path).lexically_normal();
+        dataset.samples.push_back(DatasetSample{absolute_image_path.generic_string(), class_index});
     }
 
     if(dataset_manifest_paths != nullptr){
         dataset_manifest_paths->clear();
         dataset_manifest_paths->reserve(static_cast<std::size_t>(examples));
         for(const fs::path &image_path : train_files){
-            dataset_manifest_paths->push_back(image_path.lexically_normal().generic_string());
+            dataset_manifest_paths->push_back(fs::absolute(image_path).lexically_normal().generic_string());
         }
     }
 

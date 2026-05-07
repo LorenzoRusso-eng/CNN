@@ -5,76 +5,12 @@
 #include <algorithm>
 #include <stdexcept>
 #include <string>
-#include <unordered_map>
 #include <utility>
 
 #include <cublas_v2.h>
 #include <cuda_runtime.h>
 
 namespace cuda_backend {
-namespace {
-
-struct DeviceMirrorEntry {
-    const float *device_ptr = nullptr;
-    std::size_t size = 0;
-};
-
-std::unordered_map<const float *, DeviceMirrorEntry> &device_mirror_cache(){
-    static std::unordered_map<const float *, DeviceMirrorEntry> cache;
-    return cache;
-}
-
-void register_device_mirror(const float *host_ptr, const CudaBatchTensor<float> &device_buffer){
-    if(host_ptr != nullptr && device_buffer.data() != nullptr){
-        device_mirror_cache()[host_ptr] = DeviceMirrorEntry{device_buffer.data(), device_buffer.size()};
-    }
-}
-
-void clear_device_mirror_cache(){
-    device_mirror_cache().clear();
-}
-
-const float *lookup_device_mirror(const float *host_ptr, std::size_t required_size){
-    const auto found = device_mirror_cache().find(host_ptr);
-    if(found == device_mirror_cache().end()){
-        return nullptr;
-    }
-    if(found->second.size < required_size){
-        return nullptr;
-    }
-    return found->second.device_ptr;
-}
-
-cublasOperation_t to_cublas_op(TransposeOp op){
-    return op == TransposeOp::NoTrans ? CUBLAS_OP_N : CUBLAS_OP_T;
-}
-
-
-struct DeviceOperand {
-    CudaBatchTensor<float> temp;
-    const float *device_ptr = nullptr;
-
-    const float *prepare(const float *host_ptr, std::size_t size){
-        device_ptr = lookup_device_mirror(host_ptr, size);
-        if(device_ptr != nullptr){
-            return device_ptr;
-        }
-        temp.copy_from_host(host_ptr, 1, 1, static_cast<int>(size), 1);
-        device_ptr = temp.data();
-        return device_ptr;
-    }
-};
-
-float matrix_value_row_major(const float *matrix, int row, int col, int leading_dim){
-    return matrix[static_cast<std::size_t>(row) * static_cast<std::size_t>(leading_dim) + static_cast<std::size_t>(col)];
-}
-
-std::size_t physical_matrix_size(TransposeOp trans, int physical_rows_if_no_trans, int physical_rows_if_trans, int leading_dim){
-    const int physical_rows = (trans == TransposeOp::NoTrans) ? physical_rows_if_no_trans : physical_rows_if_trans;
-    return static_cast<std::size_t>(std::max(0, physical_rows)) * static_cast<std::size_t>(std::max(0, leading_dim));
-}
-
-} // namespace
 
 void check_cuda(cudaError_t status, const char *context){
     if(status != cudaSuccess){
@@ -219,6 +155,14 @@ void CudaBatchTensor<T>::copy_from_device(const CudaBatchTensor<T> &src){
 }
 
 template <typename T>
+void CudaBatchTensor<T>::copy_data_from_device(const CudaBatchTensor<T> &src){
+    require_condition(size_ == src.size(), "CudaBatchTensor::copy_data_from_device: dimensioni buffer incompatibili");
+    if(size_ > 0){
+        check_cuda(cudaMemcpy(ptr_, src.data(), size_ * sizeof(T), cudaMemcpyDeviceToDevice), "cudaMemcpy DeviceToDevice data-only");
+    }
+}
+
+template <typename T>
 void CudaBatchTensor<T>::copy_to_host(T *dst, std::size_t count) const{
     require_condition(count <= size_, "CudaBatchTensor::copy_to_host: count maggiore della dimensione del buffer");
     if(count > 0){
@@ -310,8 +254,6 @@ void init_cuda_batch_runtime_buffers(const LayerList &architecture, CudaBatchRun
         const Layer &layer = architecture[layer_index];
         const int flat_size = layer.flat_output_size();
         const bool uses_activation = layer.type == Layer_type::Dense || layer.type == Layer_type::Conv;
-        const bool previous_uses_cuda = layer_index > 0 && (architecture[layer_index - 1].type == Layer_type::Dense || architecture[layer_index - 1].type == Layer_type::Conv);
-        const bool next_uses_cuda = layer_index + 1 < architecture.size() && (architecture[layer_index + 1].type == Layer_type::Dense || architecture[layer_index + 1].type == Layer_type::Conv);
 
         state.batch_size = batch_size;
         state.flat_size = flat_size;
@@ -351,20 +293,121 @@ void init_or_load_velocity(const LayerList &architecture, CudaParameterBuffer &v
     if(runtime_state == nullptr){
         return;
     }
-    if(runtime_state->velocity.dense_weights.size() == architecture.size() &&
-       runtime_state->velocity.dense_biases.size() == architecture.size() &&
-       runtime_state->velocity.conv_weights.size() == architecture.size() &&
-       runtime_state->velocity.conv_biases.size() == architecture.size()){
-        for(int l = 0; l < static_cast<int>(architecture.size()); l++){
-            if(architecture[l].type == Layer_type::Dense){
-                velocity.dense_weights[l].copy_from_host(runtime_state->velocity.dense_weights[l].data(), 1, architecture[l].dense_output_size, architecture[l].dense_input_size, 1);
-                velocity.dense_biases[l].copy_from_host(runtime_state->velocity.dense_biases[l].data(), 1, architecture[l].dense_output_size, 1, 1);
-            } else if(architecture[l].type == Layer_type::Conv){
-                velocity.conv_weights[l].copy_from_host(runtime_state->velocity.conv_weights[l].data(), 1, architecture[l].dim_layer[2], architecture[l].kernel_dim[0] * architecture[l].kernel_dim[1] * architecture[l].kernel_dim[2], 1);
-                velocity.conv_biases[l].copy_from_host(runtime_state->velocity.conv_biases[l].data(), 1, architecture[l].dim_layer[2], 1, 1);
-            }
+
+    const ParameterBuffer &host_velocity = runtime_state->velocity;
+    const bool velocity_empty =
+        host_velocity.dense_weights.empty() &&
+        host_velocity.dense_biases.empty() &&
+        host_velocity.conv_weights.empty() &&
+        host_velocity.conv_biases.empty();
+    if(velocity_empty){
+        return;
+    }
+
+    require_condition(
+        host_velocity.dense_weights.size() == architecture.size() &&
+        host_velocity.dense_biases.size() == architecture.size() &&
+        host_velocity.conv_weights.size() == architecture.size() &&
+        host_velocity.conv_biases.size() == architecture.size(),
+        "init_or_load_velocity: numero layer velocity incoerente"
+    );
+
+    for(int l = 0; l < static_cast<int>(architecture.size()); l++){
+        const Layer &layer = architecture[static_cast<std::size_t>(l)];
+        const std::size_t layer_index = static_cast<std::size_t>(l);
+
+        if(layer.type == Layer_type::Dense){
+            const std::size_t expected_weights =
+                static_cast<std::size_t>(layer.dense_output_size) *
+                static_cast<std::size_t>(layer.dense_input_size);
+            const std::size_t expected_biases = static_cast<std::size_t>(layer.dense_output_size);
+
+            require_condition(
+                host_velocity.dense_weights[layer_index].size() == expected_weights,
+                "init_or_load_velocity: dense_weights size incoerente al layer " + std::to_string(l)
+            );
+            require_condition(
+                host_velocity.dense_biases[layer_index].size() == expected_biases,
+                "init_or_load_velocity: dense_biases size incoerente al layer " + std::to_string(l)
+            );
+
+            velocity.dense_weights[layer_index].copy_from_host(
+                host_velocity.dense_weights[layer_index].data(),
+                1,
+                layer.dense_output_size,
+                layer.dense_input_size,
+                1
+            );
+            velocity.dense_biases[layer_index].copy_from_host(
+                host_velocity.dense_biases[layer_index].data(),
+                1,
+                layer.dense_output_size,
+                1,
+                1
+            );
+        } else {
+            require_condition(host_velocity.dense_weights[layer_index].empty(), "init_or_load_velocity: dense_weights inattesi al layer " + std::to_string(l));
+            require_condition(host_velocity.dense_biases[layer_index].empty(), "init_or_load_velocity: dense_biases inattesi al layer " + std::to_string(l));
         }
-         
+
+        if(layer.type == Layer_type::Conv){
+            const std::size_t expected_weights = static_cast<std::size_t>(layer.conv_filter_count());
+            const std::size_t expected_biases = static_cast<std::size_t>(layer.dim_layer[2]);
+
+            require_condition(
+                host_velocity.conv_weights[layer_index].size() == expected_weights,
+                "init_or_load_velocity: conv_weights size incoerente al layer " + std::to_string(l)
+            );
+            require_condition(
+                host_velocity.conv_biases[layer_index].size() == expected_biases,
+                "init_or_load_velocity: conv_biases size incoerente al layer " + std::to_string(l)
+            );
+
+            velocity.conv_weights[layer_index].copy_from_host(
+                host_velocity.conv_weights[layer_index].data(),
+                1,
+                layer.dim_layer[2],
+                layer.kernel_dim[0] * layer.kernel_dim[1] * layer.kernel_dim[2],
+                1
+            );
+            velocity.conv_biases[layer_index].copy_from_host(
+                host_velocity.conv_biases[layer_index].data(),
+                1,
+                layer.dim_layer[2],
+                1,
+                1
+            );
+        } else {
+            require_condition(host_velocity.conv_weights[layer_index].empty(), "init_or_load_velocity: conv_weights inattesi al layer " + std::to_string(l));
+            require_condition(host_velocity.conv_biases[layer_index].empty(), "init_or_load_velocity: conv_biases inattesi al layer " + std::to_string(l));
+        }
+    }
+}
+
+void init_cuda_forward_batch_runtime_buffers(const LayerList &architecture, CudaBatchRuntimeList &runtime, int batch_size){
+    runtime.resize(architecture.size());
+    for(std::size_t layer_index = 0; layer_index < architecture.size(); layer_index++){
+        CudaBatchLayerRuntime &state = runtime[layer_index];
+        state.clear();
+        const Layer &layer = architecture[layer_index];
+        const int flat_size = layer.flat_output_size();
+
+        state.batch_size = batch_size;
+        state.flat_size = flat_size;
+        state.y.resize(batch_size, layer.dim_layer[0], layer.dim_layer[1], layer.dim_layer[2]);
+
+        if(layer.type == Layer_type::Dense || layer.type == Layer_type::Conv){
+            state.a.resize(batch_size, layer.dim_layer[0], layer.dim_layer[1], layer.dim_layer[2]);
+        }
+
+        if(layer.type == Layer_type::Conv){
+            const int patch_size = layer.kernel_dim[0] * layer.kernel_dim[1] * layer.kernel_dim[2];
+            state.conv_im2col.resize(batch_size, patch_size, layer.dim_layer[0] * layer.dim_layer[1], 1);
+        }
+
+        if(layer.type == Layer_type::Pooling && layer.pooling_type == Pooling_type::Max){
+            state.pooling_argmax.resize(batch_size, layer.dim_layer[0], layer.dim_layer[1], layer.dim_layer[2]);
+        }
     }
 }
 
@@ -453,7 +496,6 @@ void sync_cuda_parameters_from_cpu(const LayerList &architecture, CudaParameterB
                 layer.dense_input_size,
                 1
             );
-            register_device_mirror(layer.dense_params.weights.data(), weights);
             biases.copy_from_host(
                 layer.dense_params.bias.data(),
                 1,
@@ -461,7 +503,6 @@ void sync_cuda_parameters_from_cpu(const LayerList &architecture, CudaParameterB
                 layer.dense_output_size,
                 1
             );
-            register_device_mirror(layer.dense_params.bias.data(), biases);
         } else if(layer.type == Layer_type::Conv){
             auto &weights = buffer.conv_weights[layer_index];
             auto &biases = buffer.conv_biases[layer_index];
@@ -472,7 +513,6 @@ void sync_cuda_parameters_from_cpu(const LayerList &architecture, CudaParameterB
                 layer.kernel_dim[0] * layer.kernel_dim[1] * layer.kernel_dim[2],
                 1
             );
-            register_device_mirror(layer.conv_params.filters.data(), weights);
             biases.copy_from_host(
                 layer.conv_params.bias.data(),
                 1,
@@ -480,7 +520,6 @@ void sync_cuda_parameters_from_cpu(const LayerList &architecture, CudaParameterB
                 layer.dim_layer[2],
                 1
             );
-            register_device_mirror(layer.conv_params.bias.data(), biases);
         }
     }
 }

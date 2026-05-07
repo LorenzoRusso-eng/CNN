@@ -3,12 +3,15 @@
 // Questo file contiene la serializzazione del report performance in formato Markdown.
 
 #include "IO/layer_text_codec.hpp"
+#include "evaluation/evaluation_metrics.hpp"
 
 #include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace{
     std::string bool_to_yes_no(bool value){
@@ -221,6 +224,53 @@ namespace{
         out << "| Accuracy | " << perf.accuracy << " |" << std::endl;
         out << std::endl;
     }
+
+    TestPerformance aggregate_k_fold_performance(const std::vector<TestPerformance> &performances, int num_classes){
+        int total_test_count = 0;
+        int total_correct = 0;
+        std::vector<std::vector<int>> total_confusion(
+            static_cast<std::size_t>(num_classes),
+            std::vector<int>(static_cast<std::size_t>(num_classes), 0)
+        );
+
+        for(const TestPerformance &perf : performances){
+            if(perf.test_count <= 0){
+                continue;
+            }
+
+            if(perf.num_classes != num_classes){
+                throw std::invalid_argument("aggregate_k_fold_performance: numero classi incoerente tra fold");
+            }
+            if(static_cast<int>(perf.confusion.size()) != num_classes){
+                throw std::invalid_argument("aggregate_k_fold_performance: confusion matrix incoerente tra fold");
+            }
+
+            total_test_count += perf.test_count;
+            total_correct += perf.correct;
+
+            for(int r = 0; r < num_classes; r++){
+                if(static_cast<int>(perf.confusion[static_cast<std::size_t>(r)].size()) != num_classes){
+                    throw std::invalid_argument("aggregate_k_fold_performance: riga confusion matrix incoerente tra fold");
+                }
+
+                for(int c = 0; c < num_classes; c++){
+                    total_confusion[static_cast<std::size_t>(r)][static_cast<std::size_t>(c)] +=
+                        perf.confusion[static_cast<std::size_t>(r)][static_cast<std::size_t>(c)];
+                }
+            }
+        }
+
+        if(total_test_count <= 0){
+            return TestPerformance{};
+        }
+
+        return evaluation_metrics::build_test_performance(
+            num_classes,
+            total_test_count,
+            total_correct,
+            std::move(total_confusion)
+        );
+    }
 }
 
 void write_performance_report_hold_out(const std::filesystem::path &file_path, const ReportMetadata &meta, const TrainingSummary &training_summary, const TestPerformance &perf, const LayerList &architecture, int num_layers, int train_examples, int validation_examples, int test_examples){
@@ -250,10 +300,6 @@ void write_performance_report_k_fold(const std::filesystem::path &file_path, con
 
     out << std::fixed << std::setprecision(7);
 
-    float outer_precision = 0.0f;
-    float outer_recall = 0.0f;
-    float outer_f1 = 0.0f;
-    float outer_accuracy = 0.0f;
     double outer_total_training_seconds = 0.0;
 
     write_report_title(out, meta);
@@ -282,27 +328,33 @@ void write_performance_report_k_fold(const std::filesystem::path &file_path, con
         write_class_metrics_table(out, perf);
         write_aggregate_metrics_table(out, perf);
 
-        outer_precision += perf.macro_precision;
-        outer_recall += perf.macro_recall;
-        outer_f1 += perf.macro_f1;
-        outer_accuracy += perf.accuracy;
         outer_total_training_seconds += train_sum.total_training_seconds;
     }
+
+    const TestPerformance aggregate_perf = aggregate_k_fold_performance(performances, meta.num_classes);
 
     out << "## Aggregated Metrics Across Folds" << std::endl;
     out << "| Metric | Value |" << std::endl;
     out << "|---|---:|" << std::endl;
-    out << "| Macro Precision | " << (outer_precision / meta.k_folds) << " |" << std::endl;
-    out << "| Macro Recall | " << (outer_recall / meta.k_folds) << " |" << std::endl;
-    out << "| Macro F1 | " << (outer_f1 / meta.k_folds) << " |" << std::endl;
-    out << "| Accuracy | " << (outer_accuracy / meta.k_folds) << " |" << std::endl;
+    out << "| Test Examples | " << aggregate_perf.test_count << " |" << std::endl;
+    out << "| Correct Predictions | " << aggregate_perf.correct << " |" << std::endl;
+    out << "| Macro Precision | " << aggregate_perf.macro_precision << " |" << std::endl;
+    out << "| Macro Recall | " << aggregate_perf.macro_recall << " |" << std::endl;
+    out << "| Macro F1 | " << aggregate_perf.macro_f1 << " |" << std::endl;
+    out << "| Accuracy | " << aggregate_perf.accuracy << " |" << std::endl;
     out << "| Avg Total Training Seconds | " << (outer_total_training_seconds / meta.k_folds) << " |" << std::endl;
     out << std::endl;
 
+    write_confusion_matrix_table(out, aggregate_perf);
+    write_class_metrics_table(out, aggregate_perf);
+    write_aggregate_metrics_table(out, aggregate_perf);
+
     std::cout << "Risultati aggregati sui fold:" << std::endl;
-    std::cout << "macro_precision " << (outer_precision / meta.k_folds) << std::endl;
-    std::cout << "macro_recall " << (outer_recall / meta.k_folds) << std::endl;
-    std::cout << "macro_f1 " << (outer_f1 / meta.k_folds) << std::endl;
-    std::cout << "accuracy " << (outer_accuracy / meta.k_folds) << std::endl;
+    std::cout << "test_examples " << aggregate_perf.test_count << std::endl;
+    std::cout << "correct " << aggregate_perf.correct << std::endl;
+    std::cout << "macro_precision " << aggregate_perf.macro_precision << std::endl;
+    std::cout << "macro_recall " << aggregate_perf.macro_recall << std::endl;
+    std::cout << "macro_f1 " << aggregate_perf.macro_f1 << std::endl;
+    std::cout << "accuracy " << aggregate_perf.accuracy << std::endl;
     std::cout << "avg_total_training_seconds " << (outer_total_training_seconds / meta.k_folds) << std::endl;
 }

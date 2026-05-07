@@ -29,21 +29,21 @@ TestPerformance run_test(LayerList &architecture, int num_layers, const cuda_bac
         return perf;
     }
 
-    const int num_classes = architecture[num_layers - 1].dim_layer[0];
+    const int num_classes = architecture[num_layers - 1].flat_output_size();
     std::vector<std::vector<int>> confusion(num_classes, std::vector<int>(num_classes, 0));
     int correct = 0;
 
     std::cout << "Inizio test..." << std::endl;
     cuda_backend::CudaBatchRuntimeList runtime;
 
-    const int flat_size = architecture[num_layers - 1].flat_output_size();
+    const int flat_size = num_classes;
     std::vector<float> predicted_output;
 
     for(int start = 0; start < test_count; start += kEvaluationBatchSize){
         const int end = std::min(test_count, start + kEvaluationBatchSize);
         const int batch_size = end - start;
 
-        cuda_backend::init_cuda_batch_runtime_buffers(architecture, runtime, batch_size);
+        cuda_backend::init_cuda_forward_batch_runtime_buffers(architecture, runtime, batch_size);
         feed_input_batch(dataset, test_indices, start, end, architecture[0], runtime[0]);
         forwardprop_batch(architecture, runtime, num_layers, parameters, hidden_activation, output_activation);
 
@@ -121,7 +121,7 @@ float run_validation_accuracy(LayerList &architecture, int num_layers, const cud
         const int end = std::min(validation_count, start + effective_batch_size);
         const int current_batch_size = end - start;
 
-        cuda_backend::init_cuda_batch_runtime_buffers(architecture, runtime, current_batch_size);
+        cuda_backend::init_cuda_forward_batch_runtime_buffers(architecture, runtime, current_batch_size);
         feed_input_batch(dataset, validation_indices, start, end, architecture[0], runtime[0]);
         forwardprop_batch(architecture, runtime, num_layers, parameters, hidden_activation, output_activation);
 

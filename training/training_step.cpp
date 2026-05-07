@@ -22,8 +22,8 @@ float train_batch_chunk(
     fill_target_batch(dataset, indices, start, end, architecture[num_layers - 1], target_batch);
     forwardprop_batch(architecture, runtime, num_layers, cuda_params, hidden_activation, output_activation);
 
-    float loss_value = 0.0f;
-    backprop_batch(architecture, runtime, num_layers, batch_gradients, cuda_params, loss, loss_value, target_batch, hidden_activation, output_activation);
+    const float loss_value = Loss_fun(runtime[num_layers - 1], loss, target_batch);
+    backprop_batch(architecture, runtime, num_layers, batch_gradients, cuda_params, loss, target_batch, hidden_activation, output_activation);
     return loss_value;
 }
 
@@ -46,8 +46,7 @@ float train_batch_chunk_nesterov(
 
     float architecture_loss_value = Loss_fun(runtime[num_layers - 1], loss, target_batch);
     forwardprop_batch(architecture, runtime, num_layers, cuda_params, hidden_activation, output_activation, velocity, momentum);
-    float lookahead_loss_value = 0.0f;
-    backprop_batch(architecture, runtime, num_layers, batch_gradients, cuda_params, loss, lookahead_loss_value, target_batch, hidden_activation, output_activation, velocity, momentum);
+    backprop_batch(architecture, runtime, num_layers, batch_gradients, cuda_params, loss, target_batch, hidden_activation, output_activation, velocity, momentum);
 
     return architecture_loss_value;
 }

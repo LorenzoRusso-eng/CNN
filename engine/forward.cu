@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <vector>
 
 #include <cuda_runtime.h>
 #include <cublas_v2.h>
@@ -345,6 +346,7 @@ void feed_input_batch(
        first_runtime.y.resize(batch_size, first.dim_layer[0], first.dim_layer[1], first.dim_layer[2]);
     }
 
+    std::vector<float> host_batch(static_cast<std::size_t>(batch_size) * static_cast<std::size_t>(flat_size));
     for(int batch_index = 0; batch_index < batch_size; batch_index++){
         const int sample_index = indices[start + batch_index];
         require_condition(sample_index >= 0 && sample_index < dataset.size(), "feed_input_batch: indice sample fuori range");
@@ -353,9 +355,17 @@ void feed_input_batch(
             first.dim_layer[0], first.dim_layer[1], first.dim_layer[2]
         );
         validate_tensor_shape(src, first.dim_layer, "feed_input_batch");
+        std::copy(
+            src.data.begin(),
+            src.data.end(),
+            host_batch.begin() + static_cast<std::ptrdiff_t>(batch_index) * flat_size
+        );
+    }
+
+    if(!host_batch.empty()){
         cuda_backend::check_cuda(cudaMemcpy(
-            first_runtime.y.data() + static_cast<std::ptrdiff_t>(batch_index) * flat_size, src.data.data(),
-            static_cast<std::size_t>(flat_size) * sizeof(float), cudaMemcpyHostToDevice
+            first_runtime.y.data(), host_batch.data(),
+            host_batch.size() * sizeof(float), cudaMemcpyHostToDevice
         ), "feed_input_batch: cudaMemcpy failed");
     }
 }
@@ -391,17 +401,20 @@ void fill_target_batch(
     const int batch_size = end - start;
     const int flat_size = last.flat_output_size();
     target_batch.resize(batch_size, last.dim_layer[0], last.dim_layer[1], last.dim_layer[2]);
+    std::vector<float> host_targets(static_cast<std::size_t>(batch_size) * static_cast<std::size_t>(flat_size), 0.0f);
 
     for(int batch_index = 0; batch_index < batch_size; batch_index++){
         const int sample_index = indices[start + batch_index];
         require_condition(sample_index >= 0 && sample_index < dataset.size(), "fill_target_batch: indice sample fuori range");
         const int class_index = dataset.samples[static_cast<std::size_t>(sample_index)].class_index;
         require_condition(class_index >= 0 && class_index < flat_size, "fill_target_batch: classe sample fuori range");
-        std::vector<float> target(static_cast<std::size_t>(flat_size), 0.0f);
-        target[static_cast<std::size_t>(class_index)] = 1.0f;
+        host_targets[static_cast<std::size_t>(batch_index) * static_cast<std::size_t>(flat_size) + static_cast<std::size_t>(class_index)] = 1.0f;
+    }
+
+    if(!host_targets.empty()){
         cuda_backend::check_cuda(cudaMemcpy(
-            target_batch.data() + static_cast<std::ptrdiff_t>(batch_index) * flat_size, target.data(),
-            static_cast<std::size_t>(flat_size) * sizeof(float), cudaMemcpyHostToDevice
+            target_batch.data(), host_targets.data(),
+            host_targets.size() * sizeof(float), cudaMemcpyHostToDevice
         ), "feed_target_batch: cudaMemcpy failed");
     }
 }
@@ -445,7 +458,7 @@ void forwardprop_batch(
                 );
                 break;
             case Layer_type::Flatten:
-                current_runtime.y.copy_from_device(previous_runtime.y);
+                current_runtime.y.copy_data_from_device(previous_runtime.y);
                 break;
             case Layer_type::LRN:
                 forward_lrn_layer_batch(

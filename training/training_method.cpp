@@ -51,7 +51,7 @@ namespace{
             case 1:
                 return use_nesterov
                     ? train_batch_nesterov(
-                        architecture, num_layers,
+                        architecture, num_layers, window,
                         learning_rate_decay, num_epochs, target_loss,
                         indices, dataset,
                         loss, hidden_activation, output_activation,
@@ -62,7 +62,7 @@ namespace{
                         runtime_state
                     )
                     : train_batch(
-                        architecture, num_layers,
+                        architecture, num_layers, window,
                         learning_rate_decay, num_epochs, target_loss,
                         indices, dataset,
                         loss, hidden_activation, output_activation,

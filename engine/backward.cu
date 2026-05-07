@@ -305,7 +305,7 @@ void build_cost_from_next_layer_all_batch(
             break;
 
         case Layer_type::Flatten:
-            out_cost.copy_from_device(next_runtime.delta);
+            out_cost.copy_data_from_device(next_runtime.delta);
             break;
 
         case Layer_type::LRN:

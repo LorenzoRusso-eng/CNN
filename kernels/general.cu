@@ -111,3 +111,20 @@ __global__ void update_params(
     }
 }
 
+__global__ void accumulate_scaled_params(
+    const float *grad_w, const float *grad_b,
+    float *accum_w, float *accum_b,
+    float scale, int total_size, int in_features
+){
+    int i = blockDim.x * blockIdx.x + threadIdx.x;
+
+    if(i < total_size){
+        if(i % in_features == 0){
+            int feature_idx = i / in_features;
+            accum_b[feature_idx] += scale * grad_b[feature_idx];
+        }
+
+        accum_w[i] += scale * grad_w[i];
+    }
+}
+

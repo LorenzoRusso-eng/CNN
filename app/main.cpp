@@ -95,7 +95,7 @@ void validate_dataset_compatibility_with_architecture(const LayerList &architect
         "Il dataset caricato non e' compatibile con la shape di input dello snapshot"
     );
     require_condition(
-        architecture.back().dim_layer[0] == dim_output,
+        architecture.back().flat_output_size() == dim_output,
         "Il dataset caricato non e' compatibile con il numero classi dello snapshot"
     );
 }
@@ -427,7 +427,7 @@ void run_inference_mode(){
     cuda_backend::init_cuda_parameter_buffer(architecture, parameters);
     cuda_backend::sync_cuda_parameters_from_cpu(architecture, parameters);
 
-    cuda_backend::init_cuda_batch_runtime_buffers(architecture, runtime, 1);
+    cuda_backend::init_cuda_forward_batch_runtime_buffers(architecture, runtime, 1);
     feed_input_tensor(image, architecture[0], runtime[0]);
     forwardprop_batch(architecture, runtime, num_layers, parameters, hidden_activation, output_activation);
 
@@ -449,7 +449,7 @@ void run_inference_mode(){
     std::cout << "Classe predetta (indice): " << predicted_class << std::endl;
     std::cout << "Confidenza: " << confidence << std::endl;
 
-    if(!class_names.empty() && static_cast<int>(class_names.size()) == architecture[num_layers - 1].dim_layer[0]){
+    if(!class_names.empty() && static_cast<int>(class_names.size()) == flat_size){
         std::cout << "Classe predetta (nome): " << class_names[predicted_class] << std::endl;
     }
 }

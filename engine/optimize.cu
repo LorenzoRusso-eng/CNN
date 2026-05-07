@@ -85,3 +85,64 @@ void optimizer_step(
         }
     }
 }
+
+void accumulate_scaled_gradients(
+    const LayerList &architecture, int num_layers,
+    CudaParameterBuffer &accumulated,
+    const CudaParameterBuffer &chunk,
+    float scale
+){
+    for(int l=1; l<num_layers; l++){
+        const Layer &current = architecture[l];
+        switch(current.type){
+            case Layer_type::Dense: {
+                float *accum_weight_data = accumulated.dense_weights[l].data();
+                float *accum_bias_data = accumulated.dense_biases[l].data();
+
+                const float *chunk_weight_grad = chunk.dense_weights[l].data();
+                const float *chunk_bias_grad = chunk.dense_biases[l].data();
+
+                int out_features = accumulated.dense_weights[l].height();
+                int in_features = accumulated.dense_weights[l].width();
+                int total_size = out_features * in_features;
+
+                int GridDim = (total_size + 256 - 1) / 256;
+                accumulate_scaled_params <<< GridDim, 256 >>>(
+                    chunk_weight_grad, chunk_bias_grad,
+                    accum_weight_data, accum_bias_data,
+                    scale, total_size, in_features
+                );
+                cuda_backend::check_cuda_kernel("accumulate dense gradients");
+                break;
+            }
+
+            case Layer_type::Conv: {
+                float *accum_filter_data = accumulated.conv_weights[l].data();
+                float *accum_bias_data = accumulated.conv_biases[l].data();
+
+                const float *chunk_filter_grad = chunk.conv_weights[l].data();
+                const float *chunk_bias_grad = chunk.conv_biases[l].data();
+
+                int num_filters = accumulated.conv_weights[l].height();
+                int patch_size = accumulated.conv_weights[l].width();
+                int total_size = patch_size * num_filters;
+
+                int GridDim = (total_size + 256 - 1) / 256;
+                accumulate_scaled_params <<< GridDim, 256 >>>(
+                    chunk_filter_grad, chunk_bias_grad,
+                    accum_filter_data, accum_bias_data,
+                    scale, total_size, patch_size
+                );
+                cuda_backend::check_cuda_kernel("accumulate conv gradients");
+                break;
+            }
+
+            case Layer_type::Pooling:
+            case Layer_type::Flatten:
+            case Layer_type::LRN:
+            case Layer_type::Softmax:
+            case Layer_type::Input:
+                break;
+        }
+    }
+}

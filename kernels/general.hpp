@@ -42,3 +42,9 @@ __global__ void update_params(
     const float *grad_w, const float *grad_b, float *param_w, float *param_b, float *velocity_w, float *velocity_b,
     float learning_rate, float momentum, int total_size, int in_features
 );
+
+__global__ void accumulate_scaled_params(
+    const float *grad_w, const float *grad_b,
+    float *accum_w, float *accum_b,
+    float scale, int total_size, int in_features
+);

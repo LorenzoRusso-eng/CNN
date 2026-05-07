@@ -34,6 +34,7 @@ public:
     void copy_from_host(const T *src, int batch_size, int h, int w, int ch);
     void copy_from_device(const T *src, int batch_size, int h, int w, int ch);
     void copy_from_device(const CudaBatchTensor<T> &src);
+    void copy_data_from_device(const CudaBatchTensor<T> &src);
     void copy_to_host(T *dst, std::size_t count) const;
 
     T *data() noexcept { return ptr_; }
@@ -113,6 +114,7 @@ bool is_cuda_enabled() noexcept;
 void *current_cublas_handle();
 void init_cuda_runtime_buffers(const LayerList &architecture, CudaRuntimeList &runtime);
 void init_cuda_batch_runtime_buffers(const LayerList &architecture, CudaBatchRuntimeList &runtime, int batch_size);
+void init_cuda_forward_batch_runtime_buffers(const LayerList &architecture, CudaBatchRuntimeList &runtime, int batch_size);
 void init_cuda_parameter_buffer(const LayerList &architecture, CudaParameterBuffer &buffer);
 void init_or_load_velocity(const LayerList &architecture, CudaParameterBuffer &velocity, const TrainingRuntimeState *runtime_state);
 void zero_cuda_parameter_buffer(const LayerList &architecture, CudaParameterBuffer &buffer);

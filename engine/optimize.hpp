@@ -11,3 +11,11 @@ void optimizer_step(
     float learning_rate,
     float momentum
 );
+
+void accumulate_scaled_gradients(
+    const LayerList &architecture,
+    int num_layers,
+    cuda_backend::CudaParameterBuffer &accumulated,
+    const cuda_backend::CudaParameterBuffer &chunk,
+    float scale
+);

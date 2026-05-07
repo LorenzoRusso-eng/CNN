@@ -216,7 +216,6 @@ void backprop_conv_layer_batch(
     dim3 KernelDim(16, 16);
     int Grid_dim_h = (im2col_height + 16 -1) / 16;
     int Grid_dim_w = (im2col_width + 16 -1) / 16;
-    int activation_grid_dim = (output_size + 256 -1) / 256;
     dim3 GridDim_im2col(Grid_dim_h, Grid_dim_w, batch_size);
 
     im2col <<< GridDim_im2col, KernelDim >>>(
@@ -244,7 +243,7 @@ void backprop_conv_layer_batch(
 void backprop_batch(
     const LayerList &architecture, cuda_backend::CudaBatchRuntimeList &runtime, int num_layers, 
     CudaParameterBuffer &gradients, const CudaParameterBuffer &cuda_params,
-    const Loss &loss, float &loss_value, const cuda_backend::CudaBatchTensor<float> &desired_output,
+    const Loss &loss, const cuda_backend::CudaBatchTensor<float> &desired_output,
     const Activation &hidden_activation, const Activation &output_activation,
     const CudaParameterBuffer *velocity, float momentum,
     float learning_rate
@@ -326,9 +325,4 @@ void backprop_batch(
                 break;
         }
     }
-
-    CudaBatchLayerRuntime &output_runtime = runtime[num_layers - 1];
-
-    loss_value = Loss_fun(output_runtime, loss, desired_output);
-
 }
