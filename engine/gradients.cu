@@ -40,7 +40,6 @@ void backprop_dense_layer_batch(
     const float *output = current_runtime.y.data();
     const float *input = previous_runtime.y.data();
     const float *a = current_runtime.a.data();
-    const float *cost_from_next = current_runtime.backprop_cost_from_next.data();
     const float *ones = current_runtime.reduction_ones.data();
 
     float *delta = current_runtime.delta.data();
@@ -67,6 +66,7 @@ void backprop_dense_layer_batch(
             velocity, momentum, 
             current_runtime.backprop_cost_from_next
         );
+        const float *cost_from_next = current_runtime.backprop_cost_from_next.data();
         compute_delta_hidden <<< GridDim_delta, 256 >>>(
             cost_from_next, a,
             total_size, act.kind, act.alpha, act.beta,
@@ -149,7 +149,6 @@ void backprop_conv_layer_batch(
     const float *output = current_runtime.y.data();
     const float *a = current_runtime.a.data();
 
-    const float *cost_from_next = current_runtime.backprop_cost_from_next.data();
     const float *ones = current_runtime.reduction_ones.data();
 
     float *delta = current_runtime.delta.data();
@@ -175,6 +174,7 @@ void backprop_conv_layer_batch(
             velocity, momentum, 
             current_runtime.backprop_cost_from_next
         );
+        const float *cost_from_next = current_runtime.backprop_cost_from_next.data();
         compute_delta_hidden <<< GridDim_delta, 256 >>>(
             cost_from_next, a,
             total_size, act.kind, act.alpha, act.beta,

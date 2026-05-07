@@ -12,6 +12,7 @@ int choose_training_window(int training_type, int max_window){
     int window = 0;
     switch(training_type){
         case 1:
+            window = read_bounded_int("Scegliere la dimensione del chunk per il training batch (tra 1 e il numero di esempi)", 1, max_window);
             break;
         case 2:
             window = read_bounded_int("Scegliere la dimensione del batch per il training (tra 1 e il numero di esempi - sconsigliato)", 1, max_window);

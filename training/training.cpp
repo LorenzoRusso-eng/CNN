@@ -51,8 +51,15 @@ void validate_loss_output_compatibility(const Layer &output_layer, const Loss &c
 
 void validate_training_setup(const LayerList &architecture, int num_layers, const std::vector<int> &indices, const LazyDataset &dataset, const Loss &loss, const Activation &output_activation, const std::string &context){
     validate_architecture(architecture, num_layers, context);
+    require_condition(!indices.empty(), context + ": nessun esempio di training selezionato");
     validate_dataset_indices_io_shapes(architecture, num_layers, dataset, indices, context);
     validate_loss_output_compatibility(architecture[num_layers - 1], loss, output_activation);
+}
+
+int validated_training_window(int requested_window, int num_examples, const std::string &context){
+    require_condition(num_examples > 0, context + ": numero esempi non valido");
+    require_condition(requested_window > 0, context + ": batch/step deve essere positivo");
+    return std::min(requested_window, num_examples);
 }
 
 bool validation_enabled(const std::vector<int> *validation_indices, const EarlyStoppingConfig *early_stopping){
@@ -244,6 +251,7 @@ TrainingSummary train_batch(
     cuda_backend::init_cuda_parameter_buffer(architecture, gradients);
     cuda_backend::init_cuda_parameter_buffer(architecture, chunk_gradients);
     cuda_backend::init_cuda_parameter_buffer(architecture, velocity);
+    cuda_backend::zero_cuda_parameter_buffer(architecture, velocity);
     init_best_parameters_from_current_if_observed(architecture, validation_tracker, parameters, velocity, best_parameters, best_velocity);
 
     for(int e=0; e<num_epochs; e++){
@@ -324,9 +332,11 @@ TrainingSummary train_sgd(LayerList &architecture, int num_layers, int batch_siz
     cuda_backend::CudaBatchRuntimeList validation_runtime;
     cuda_backend::CudaBatchTensor<float> target_batch;
     training_progress::ValidationTracker validation_tracker = init_validation_tracker(validation_enabled(validation_indices, early_stopping));
-    cuda_backend::init_cuda_batch_runtime_buffers(architecture, runtime, batch_size);
+    const int effective_batch_size = validated_training_window(batch_size, num_tr, "train_sgd");
+    cuda_backend::init_cuda_batch_runtime_buffers(architecture, runtime, effective_batch_size);
     cuda_backend::init_cuda_parameter_buffer(architecture, gradients);
     cuda_backend::init_cuda_parameter_buffer(architecture, velocity);
+    cuda_backend::zero_cuda_parameter_buffer(architecture, velocity);
     init_best_parameters_from_current_if_observed(architecture, validation_tracker, parameters, velocity, best_parameters, best_velocity);
 
     for(int e=0; e<num_epochs; e++){
@@ -336,7 +346,7 @@ TrainingSummary train_sgd(LayerList &architecture, int num_layers, int batch_siz
         training_shuffle::shuffle_vec(train_indices);
         float loss_value = 0.0f;
 
-        training_iteration::for_each_batch(num_tr, batch_size, [&](int start, int end, int){
+        training_iteration::for_each_batch(num_tr, effective_batch_size, [&](int start, int end, int){
             loss_value += training_batches::train_batch_chunk(
                 architecture, parameters, runtime, num_layers,
                 gradients, target_batch,
@@ -383,7 +393,8 @@ TrainingSummary train_sgd_online(LayerList &architecture, int num_layers, int st
     training_progress::print_training_banner();
     validate_training_setup(architecture, num_layers, train_indices, dataset, loss, output_activation, "train_sgd_online");
     int num_tr = static_cast<int>(train_indices.size());
-    const int windows = static_cast<int>(std::ceil(static_cast<float>(num_tr) / steps));
+    const int effective_steps = validated_training_window(steps, num_tr, "train_sgd_online");
+    const int windows = static_cast<int>(std::ceil(static_cast<float>(num_tr) / effective_steps));
     float last_observed_loss = std::numeric_limits<float>::quiet_NaN();
     int executed_epochs = 0;
     bool stopped_by_loss = false;
@@ -403,6 +414,7 @@ TrainingSummary train_sgd_online(LayerList &architecture, int num_layers, int st
     cuda_backend::init_cuda_batch_runtime_buffers(architecture, runtime, 1);
     cuda_backend::init_cuda_parameter_buffer(architecture, gradients);
     cuda_backend::init_cuda_parameter_buffer(architecture, velocity);
+    cuda_backend::zero_cuda_parameter_buffer(architecture, velocity);
     init_best_parameters_from_current_if_observed(architecture, validation_tracker, parameters, velocity, best_parameters, best_velocity);
 
     for(int e=0; e<num_epochs; e++){
@@ -412,8 +424,8 @@ TrainingSummary train_sgd_online(LayerList &architecture, int num_layers, int st
         training_shuffle::shuffle_vec(train_indices);
         for(int s=0; s<windows; s++){
             float loss_value = 0.0f;
-            const int start = s * steps;
-            const int end = (s == windows - 1) ? num_tr : (s + 1) * steps;
+            const int start = s * effective_steps;
+            const int end = (s == windows - 1) ? num_tr : (s + 1) * effective_steps;
 
             for(int t=start; t<end; t++){
                 loss_value += training_batches::train_batch_chunk(
@@ -494,6 +506,7 @@ TrainingSummary train_batch_nesterov(LayerList &architecture, int num_layers, in
     cuda_backend::init_cuda_parameter_buffer(architecture, gradients);
     cuda_backend::init_cuda_parameter_buffer(architecture, chunk_gradients);
     cuda_backend::init_cuda_parameter_buffer(architecture, velocity);
+    cuda_backend::zero_cuda_parameter_buffer(architecture, velocity);
     init_best_parameters_from_current_if_observed(architecture, validation_tracker, parameters, velocity, best_parameters, best_velocity);
 
     for(int e=0; e<num_epochs; e++){
@@ -574,9 +587,11 @@ TrainingSummary train_sgd_nesterov(LayerList &architecture, int num_layers, int 
     cuda_backend::CudaBatchRuntimeList validation_runtime;
     cuda_backend::CudaBatchTensor<float> target_batch;
     training_progress::ValidationTracker validation_tracker = init_validation_tracker(validation_enabled(validation_indices, early_stopping));
-    cuda_backend::init_cuda_batch_runtime_buffers(architecture, runtime, batch_size);
+    const int effective_batch_size = validated_training_window(batch_size, num_tr, "train_sgd_nesterov");
+    cuda_backend::init_cuda_batch_runtime_buffers(architecture, runtime, effective_batch_size);
     cuda_backend::init_cuda_parameter_buffer(architecture, gradients);
     cuda_backend::init_cuda_parameter_buffer(architecture, velocity);
+    cuda_backend::zero_cuda_parameter_buffer(architecture, velocity);
     init_best_parameters_from_current_if_observed(architecture, validation_tracker, parameters, velocity, best_parameters, best_velocity);
 
     for(int e=0; e<num_epochs; e++){
@@ -586,7 +601,7 @@ TrainingSummary train_sgd_nesterov(LayerList &architecture, int num_layers, int 
         training_shuffle::shuffle_vec(train_indices);
         float loss_value = 0.0f;
 
-        training_iteration::for_each_batch(num_tr, batch_size, [&](int start, int end, int){
+        training_iteration::for_each_batch(num_tr, effective_batch_size, [&](int start, int end, int){
             loss_value += training_batches::train_batch_chunk_nesterov(
                 architecture, parameters, runtime, num_layers,
                 gradients, target_batch,
@@ -634,7 +649,8 @@ TrainingSummary train_sgd_online_nesterov(LayerList &architecture, int num_layer
     training_progress::print_training_banner();
     validate_training_setup(architecture, num_layers, train_indices, dataset, loss, output_activation, "train_sgd_online_nesterov");
     int num_tr = static_cast<int>(train_indices.size());
-    const int windows = static_cast<int>(std::ceil(static_cast<float>(num_tr) / steps));
+    const int effective_steps = validated_training_window(steps, num_tr, "train_sgd_online_nesterov");
+    const int windows = static_cast<int>(std::ceil(static_cast<float>(num_tr) / effective_steps));
     float last_observed_loss = std::numeric_limits<float>::quiet_NaN();
     int executed_epochs = 0;
     bool stopped_by_loss = false;
@@ -654,6 +670,7 @@ TrainingSummary train_sgd_online_nesterov(LayerList &architecture, int num_layer
     cuda_backend::init_cuda_batch_runtime_buffers(architecture, runtime, 1);
     cuda_backend::init_cuda_parameter_buffer(architecture, gradients);
     cuda_backend::init_cuda_parameter_buffer(architecture, velocity);
+    cuda_backend::zero_cuda_parameter_buffer(architecture, velocity);
     init_best_parameters_from_current_if_observed(architecture, validation_tracker, parameters, velocity, best_parameters, best_velocity);
 
     for(int e=0; e<num_epochs; e++){
@@ -663,8 +680,8 @@ TrainingSummary train_sgd_online_nesterov(LayerList &architecture, int num_layer
         training_shuffle::shuffle_vec(train_indices);
         for(int s=0; s<windows; s++){
             float loss_value = 0.0f;
-            const int start = s * steps;
-            const int end = (s == windows - 1) ? num_tr : (s + 1) * steps;
+            const int start = s * effective_steps;
+            const int end = (s == windows - 1) ? num_tr : (s + 1) * effective_steps;
 
             for(int t=start; t<end; t++){
                 loss_value += training_batches::train_batch_chunk_nesterov(

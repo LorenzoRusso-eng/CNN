@@ -1,186 +1,257 @@
 # CNN CUDA
 
-Implementazione in C++20/CUDA di una rete neurale convoluzionale configurabile da CLI, con training e inference su immagini.
+C++20/CUDA implementation of a configurable convolutional neural network, driven from an interactive CLI and intended for image classification experiments.
 
-Il progetto usa CMake, CUDA Runtime e cuBLAS. L'eseguibile finale e' configurato di default con nome `NN_op`.
+The project builds with CMake, uses the CUDA Runtime and cuBLAS, and produces an executable named `NN_op` by default.
 
-## Funzionalita'
+## Features
 
-- Creazione interattiva dell'architettura di rete.
-- Layer supportati: Input, Convolution, Pooling, Flatten, Dense e Softmax.
-- Training con:
-  - batch;
-  - mini-batch SGD;
-  - online SGD.
-- Strategie di valutazione:
-  - hold-out;
-  - k-fold cross validation;
-  - full training.
-- Momentum e Nesterov Accelerated Gradient.
-- Learning rate decay: costante, esponenziale, time-based, step e cosine annealing.
-- Salvataggio di snapshot del modello.
-- Inference su singola immagine.
-- Report prestazioni in Markdown con metriche e matrice di confusione.
+- Interactive network architecture builder.
+- Supported layers:
+  - Input
+  - Convolution
+  - Pooling
+  - Flatten
+  - Dense
+  - optional final Softmax
+- Pooling modes: Max, Average and L2.
+- Training variants:
+  - full-batch training
+  - mini-batch SGD
+  - online SGD
+- Evaluation methods:
+  - stratified hold-out
+  - stratified k-fold cross validation
+  - full training
+- Momentum and Nesterov Accelerated Gradient.
+- Learning-rate decay strategies:
+  - constant
+  - exponential
+  - time-based
+  - step
+  - cosine annealing
+- Activation functions:
+  - Identity
+  - Sigmoid
+  - Tanh
+  - ReLU
+  - LeakyReLU
+  - ELU
+  - Softplus
+  - Swish
+  - Mish
+  - GELU
+- Loss functions:
+  - Simple loss
+  - L1
+  - L2
+  - Smooth L1
+  - Huber
+  - Cross entropy
+  - log-likelihood loss for Softmax output
+- Loss reductions: Sum and Mean.
+- Model snapshots with architecture, weights, class names and activation metadata.
+- Inference on a single image from a saved snapshot.
+- Markdown performance reports with training metrics, test metrics, per-class metrics and confusion matrices.
 
-## Validation Ed Early Stopping
+## CUDA Backend
 
-Nei metodi hold-out e k-fold il training set viene diviso ulteriormente in train effettivo e validation set, con split stratificato per classe. Il test set resta separato e viene usato solo per la valutazione finale: non guida piu' il training, non seleziona i pesi e non influenza l'early stopping.
+Training and inference run through the CUDA batch backend. Dense and convolutional layers use cuBLAS GEMM calls, while convolution uses an `im2col` layout for the forward pass and `col2im` for backpropagation.
 
-Il validation set viene valutato alla fine di ogni epoca con un forward leggero a batch. La validation accuracy guida:
+The runtime keeps network parameters in dedicated CUDA buffers and synchronizes them back to CPU memory only when a snapshot must be written or the architecture must be materialized on the host. Recent changes also reduce unnecessary device allocations and copies by:
 
-- scelta dei best weights in memoria;
-- conteggio delle epoche senza miglioramento significativo;
-- stop anticipato quando il contatore raggiunge la patience.
+- storing Dense and Conv parameters in compact parameter buffers;
+- copying best weights and optimizer velocity directly between CUDA buffers;
+- aliasing compatible runtime tensors for Flatten and Softmax transitions;
+- using forward-only CUDA buffers during evaluation and inference.
 
-Quando la validation accuracy migliora rispetto alla migliore assoluta vista finora, i pesi e la velocity CUDA correnti vengono copiati in buffer `best`. Alla fine del training, se e' stata osservata almeno una validation accuracy, i best weights e la best velocity vengono ripristinati in memoria prima della valutazione finale sul test set.
+The CUDA error helpers check kernel launches by default. Defining `NN_CUDA_SYNC_DEBUG` also synchronizes after kernel execution, which is useful for debugging CUDA failures.
 
-Default dell'early stopping:
+## Validation And Early Stopping
+
+Hold-out and k-fold runs keep the final test split separate from training. The training portion is split again into an effective training set and an internal validation set using stratified class-aware sampling.
+
+The validation set is evaluated at the end of each epoch with a lightweight batched forward pass. Validation accuracy controls:
+
+- the best weights kept in memory;
+- the optimizer velocity associated with those best weights;
+- the counter of epochs without significant improvement;
+- early stopping when the patience threshold is reached.
+
+When validation accuracy improves over the best value seen so far, the current CUDA parameters and velocity are copied into `best` buffers. At the end of training, if validation was used, the best parameters and best velocity are restored before final testing or snapshot writing.
+
+Default early-stopping settings:
 
 ```text
-validation ratio: scelto da CLI per hold-out e k-fold
-patience: 5 epoche
-min delta relativo: 0.001
+validation ratio: chosen from the CLI for hold-out and k-fold
+patience: 5 epochs
+relative min delta: 0.001
 validation batch size: 200
 ```
 
-## Requisiti
+Full training does not create an internal validation split and does not use early stopping.
 
-- CMake 3.20 o superiore.
-- Compilatore C++ con supporto C++20.
+## Requirements
+
+- CMake 3.20 or newer.
+- A C++20 compiler.
 - NVIDIA CUDA Toolkit.
-- GPU NVIDIA compatibile con CUDA.
-- cuBLAS, incluso nel CUDA Toolkit.
+- A CUDA-capable NVIDIA GPU.
+- cuBLAS, included with the CUDA Toolkit.
 
-Su Windows e' consigliato usare Visual Studio Build Tools con toolchain MSVC e `nvcc` disponibili nel prompt di sviluppo.
+On Windows, Visual Studio Build Tools with MSVC and `nvcc` available from a Developer Command Prompt are recommended.
 
-## Struttura Del Progetto
+## Project Layout
 
 ```text
-app/          Entry point dell'applicazione CLI
-cli/          Prompt e builder interattivo dell'architettura
-core/         Definizioni base, layer, validazione e backend CUDA
-engine/       Forward, backward, gradienti e ottimizzazione
-evaluation/   Metriche e valutazione del modello
-IO/           Caricamento dataset/immagini, snapshot e report
-kernels/      Kernel CUDA per operazioni CNN
-math/         Attivazioni, loss e decadimento del learning rate
-shared/       Stato globale condiviso della rete
-training/     Loop di training, optimizer, progressi e metadata
+app/          CLI application entry point
+cli/          Input prompts and interactive architecture builder
+core/         Layer definitions, validation helpers and CUDA backend
+engine/       CUDA forward pass, backward pass, gradients and optimization
+evaluation/   Test evaluation and classification metrics
+IO/           Dataset/image loading, model snapshots and reports
+kernels/      CUDA kernels for CNN operations
+math/         Activations, losses and learning-rate decay
+shared/       Global reusable activation/loss/decay objects
+training/     Training loops, batches, progress tracking and metadata
 ```
 
 ## Build
 
-### Windows Con Visual Studio Build Tools
+### Windows With Visual Studio Build Tools
 
-Nel repository sono inclusi due script batch per configurare e compilare con MSVC/CUDA.
+The repository includes two helper scripts for configuring and building with MSVC/CUDA:
 
 ```bat
 run_vs_and_cmake.bat
 run_vs_and_build.bat
 ```
 
-Gli script generano la build in `build_cuda_verify/` e compilano in configurazione `Release`.
+The scripts generate the build in `build_cuda_verify/` and compile the `Release` configuration.
 
-In alternativa, da un Developer Command Prompt:
+From a Developer Command Prompt, the equivalent commands are:
 
 ```bat
 cmake -S . -B build_cuda_verify -DNN_ENABLE_LTO=OFF
 cmake --build build_cuda_verify --config Release --parallel
 ```
 
-L'eseguibile viene prodotto come:
+The executable is produced at:
 
 ```text
 build_cuda_verify\Release\NN_op.exe
 ```
 
-### Build CMake Generica
+### Generic CMake Build
 
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
 ```
 
-Opzioni CMake utili:
+Useful CMake options:
 
 ```text
-NN_BINARY_NAME        Nome del binario prodotto, default: NN_op
-NN_ENABLE_NATIVE_ARCH Abilita ottimizzazioni native CPU, default: ON
-NN_ENABLE_LTO         Abilita link-time optimization, default: ON
-NN_ENABLE_WARNINGS    Abilita warning del compilatore, default: ON
-NN_ENABLE_MSVC_AVX2   Abilita /arch:AVX2 con MSVC, default: ON
+NN_BINARY_NAME         Output binary name, default: NN_op
+NN_ENABLE_NATIVE_ARCH Enable native CPU optimizations, default: ON
+NN_ENABLE_LTO         Enable link-time optimization, default: ON
+NN_ENABLE_WARNINGS    Enable compiler warnings, default: ON
+NN_ENABLE_MSVC_AVX2   Enable /arch:AVX2 with MSVC, default: ON
 ```
 
-## Uso
+For MSVC/CUDA builds, disabling LTO with `-DNN_ENABLE_LTO=OFF` can make local verification simpler.
 
-Avviare l'eseguibile:
+## Usage
+
+Start the executable:
 
 ```bat
 build_cuda_verify\Release\NN_op.exe
 ```
 
-All'avvio il programma chiede:
+At startup, choose one mode:
 
 ```text
-Selezionare modalita': 1=Training 2=Inference
+1 = Training
+2 = Inference
 ```
 
 ### Training
 
-In modalita' training il programma richiede:
+Training mode asks for:
 
-- nome del modello;
-- percorso del dataset;
-- architettura della rete;
-- attivazioni;
-- loss;
-- learning rate e decay;
-- tipo di training;
-- eventuale momentum/Nesterov;
-- metodo di training.
+- model name;
+- dataset path;
+- network architecture;
+- optional final Softmax layer;
+- hidden and output activations;
+- loss function and reduction;
+- initial learning rate and decay strategy;
+- target loss threshold;
+- maximum epoch count;
+- training variant: batch, mini-batch SGD or online SGD;
+- training window: chunk size for batch training, mini-batch size for SGD, or loss averaging steps for online SGD;
+- optional momentum and Nesterov;
+- evaluation method: hold-out, k-fold or full training.
+
+When a final Softmax layer is selected, the preceding Dense layer is treated as logits, the output activation is fixed to Identity and the compatible loss is fixed to log-likelihood loss.
 
 ### Inference
 
-In modalita' inference il programma richiede:
+Inference mode asks for:
 
-- percorso dello snapshot del modello;
-- percorso dell'immagine da classificare.
+- the path to a saved model snapshot;
+- the image to classify.
 
-L'immagine viene ridimensionata/caricata secondo la shape attesa dallo snapshot. Il programma stampa indice della classe predetta, confidenza e, se disponibili, nome della classe.
+The snapshot provides the architecture, weights, class names and saved activation metadata. The image is loaded and scaled to `[0, 1]` using the input shape stored in the snapshot. The program prints the predicted class index, confidence value and, when available, the class name.
 
-## Formato Del Dataset
+## Dataset Format
 
-Il dataset deve essere organizzato in sottocartelle, una per classe:
+The dataset must be organized as one subdirectory per class:
 
 ```text
 dataset/
-  classe_1/
-    immagine_001.png
-    immagine_002.jpg
-  classe_2/
-    immagine_003.png
-    immagine_004.jpg
+  class_1/
+    image_001.png
+    image_002.jpg
+  class_2/
+    image_003.png
+    image_004.jpg
 ```
 
-Estensioni supportate:
+Supported extensions:
 
 ```text
 .png, .jpg, .jpeg, .bmp, .tga
 ```
 
-Tutte le immagini del dataset devono avere la stessa altezza e larghezza. Le classi vengono lette dai nomi delle sottocartelle e ordinate alfabeticamente.
+Class names are read from the subdirectory names and sorted alphabetically. The dataset loader stores image paths lazily and loads image tensors only when a batch is fed to the GPU.
 
-## File Generati
+All images must have the same height and width. The number of channels is detected from the first image and must be compatible with the network input shape.
 
-Dopo il training vengono creati file nella directory di esecuzione:
+## Generated Files
+
+Hold-out training creates:
 
 ```text
-network_performance_report_<nome_modello>.md
-trained_model_<nome_modello>_snapshot.txt
+network_performance_report_<model_name>.md
+trained_model_<model_name>_snapshot.txt
 ```
 
-Il file `trained_model_<nome_modello>_snapshot.txt` contiene architettura e pesi ed e' usato per l'inference.
+K-fold cross validation creates:
 
-## Note Per Git
+```text
+network_performance_report_<model_name>.md
+```
 
-Le directory di build e gli artefatti compilati sono esclusi da `.gitignore`. Prima di pubblicare il repository e' consigliato versionare solo sorgenti, configurazione CMake, script utili e questo README.
+Full training creates:
+
+```text
+trained_model_<model_name>_snapshot.txt
+```
+
+Snapshots are written atomically through a temporary file and contain the layer configuration, Dense and Conv parameters, class names, hidden activation and output activation. They are the input format used by inference mode.
+
+## Notes
+
+Build directories and generated artifacts are ignored by `.gitignore`. Source files, CMake configuration, helper scripts and this README are the parts intended to be versioned.
