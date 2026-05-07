@@ -237,7 +237,7 @@ void run_inference_mode(){
             runtime[l - 1].y.copy_to_host(observed.data(), observed.size());
 
             if(architecture[l - 1].type == Layer_type::Conv){
-                std::cout << "Leggendo l'output prima dell'attivazione";
+                std::cout << "Leggendo l'output prima dell'attivazione" << std::endl;
                 runtime[l - 1].a.copy_to_host(observed.data(), observed.size());
                 int filter_go = 1;
                 while(filter_go){
