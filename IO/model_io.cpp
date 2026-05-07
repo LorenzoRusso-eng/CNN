@@ -294,7 +294,6 @@ namespace
             out << "stride " << layer.stride[0] << " " << layer.stride[1] << std::endl;
             out << "padding " << layer.padding[0] << " " << layer.padding[1] << std::endl;
             out << "pooling_type " << layer_text::pooling_type_to_string(layer.pooling_type) << std::endl;
-            out << "lrn " << layer.lrn_local_size << " " << layer.lrn_alpha << " " << layer.lrn_beta << " " << layer.lrn_k << std::endl;
 
             if(layer.type == Layer_type::Dense){
                 write_dense_params(out, layer);
@@ -403,13 +402,6 @@ void load_model_snapshot(const fs::path &snapshot_path, LayerList &architecture,
         std::string pooling_type_str;
         in >> pooling_type_str;
 
-        expect_token(in, "lrn");
-        int lrn_local_size = 0;
-        float lrn_alpha = 0.0f;
-        float lrn_beta = 0.0f;
-        float lrn_k = 1.0f;
-        in >> lrn_local_size >> lrn_alpha >> lrn_beta >> lrn_k;
-
         switch (layer_type)
         {
         case Layer_type::Input:
@@ -429,9 +421,6 @@ void load_model_snapshot(const fs::path &snapshot_path, LayerList &architecture,
         }
         case Layer_type::Flatten:
             layer.init_flatten(dim, input_dim);
-            break;
-        case Layer_type::LRN:
-            layer.init_lrn(dim, input_dim, lrn_local_size, lrn_alpha, lrn_beta, lrn_k);
             break;
         case Layer_type::Softmax:
             layer.init_softmax(dim, input_dim);

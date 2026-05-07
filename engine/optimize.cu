@@ -4,7 +4,6 @@
 #include "kernels/general.hpp"
 #include "kernels/pooling.hpp"
 #include "kernels/im2col.hpp"
-#include "kernels/lrn.hpp"
 #include "kernels/softmax.hpp"
 
 #include <algorithm>
@@ -78,7 +77,6 @@ void optimizer_step(
 
             case Layer_type::Pooling:
             case Layer_type::Flatten:
-            case Layer_type::LRN:
             case Layer_type::Softmax:
             case Layer_type::Input:
                 break;
@@ -139,7 +137,6 @@ void accumulate_scaled_gradients(
 
             case Layer_type::Pooling:
             case Layer_type::Flatten:
-            case Layer_type::LRN:
             case Layer_type::Softmax:
             case Layer_type::Input:
                 break;

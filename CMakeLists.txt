@@ -50,7 +50,6 @@ add_executable(NN_multithread_batch_optimized
     engine/optimize.cu
     kernels/general.cu
     kernels/im2col.cu
-    kernels/lrn.cu
     kernels/pooling.cu
     kernels/softmax.cu
     evaluation/evaluation.cpp

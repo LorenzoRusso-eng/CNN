@@ -90,18 +90,6 @@ inline void validate_flatten_layout(const Layer &current, const Layer &previous,
     );
 }
 
-inline void validate_lrn_layout(const Layer &current, const Layer &previous, const std::string &context){
-    require_condition(current.type == Layer_type::LRN, context + ": il layer non e' LRN");
-    validate_positive_dims(current.dim_layer, context);
-    validate_positive_dims(previous.dim_layer, context + " previous");
-    require_condition(dims_match(current.input_dim, previous.dim_layer), context + ": input_dim non coincide con il layer precedente");
-    require_condition(dims_match(current.dim_layer, previous.dim_layer), context + ": LRN richiede stessa shape tra input e output");
-    require_condition(current.lrn_local_size > 0, context + ": local_size deve essere positivo");
-    require_condition(current.lrn_alpha >= 0.0f, context + ": alpha non puo' essere negativo");
-    require_condition(current.lrn_beta >= 0.0f, context + ": beta non puo' essere negativo");
-    require_condition(current.lrn_k > 0.0f, context + ": k deve essere positivo");
-}
-
 inline void validate_softmax_layout(const Layer &current, const Layer &previous, const std::string &context){
     require_condition(current.type == Layer_type::Softmax, context + ": il layer non e' Softmax");
     validate_positive_dims(current.dim_layer, context);
@@ -123,9 +111,6 @@ inline void validate_layer_connection(const Layer &current, const Layer &previou
             break;
         case Layer_type::Flatten:
             validate_flatten_layout(current, previous, context);
-            break;
-        case Layer_type::LRN:
-            validate_lrn_layout(current, previous, context);
             break;
         case Layer_type::Softmax:
             validate_softmax_layout(current, previous, context);

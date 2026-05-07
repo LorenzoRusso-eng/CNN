@@ -7,7 +7,7 @@ Il progetto usa CMake, CUDA Runtime e cuBLAS. L'eseguibile finale e' configurato
 ## Funzionalita'
 
 - Creazione interattiva dell'architettura di rete.
-- Layer supportati: Input, Convolution, LRN, Pooling, Flatten, Dense e Softmax.
+- Layer supportati: Input, Convolution, Pooling, Flatten, Dense e Softmax.
 - Training con:
   - batch;
   - mini-batch SGD;

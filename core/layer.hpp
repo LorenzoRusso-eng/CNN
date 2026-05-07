@@ -14,7 +14,6 @@ enum class Layer_type {
     Conv,
     Pooling,
     Flatten,
-    LRN,
     Softmax
 };
 
@@ -115,10 +114,6 @@ class Layer{
         int stride[2] = {1, 1};
         int padding[2] = {0, 0};
         Pooling_type pooling_type = Pooling_type::Max;
-        int lrn_local_size = 0;
-        float lrn_alpha = 0.0f;
-        float lrn_beta = 0.0f;
-        float lrn_k = 1.0f;
 
         // Parametri e stato separati per i layer dense:
         // dense_params.weights[out_idx * dense_input_size + in_idx]
@@ -201,10 +196,6 @@ class Layer{
             kernel_dim[2] = 0;
             stride[0] = stride[1] = 1;
             padding[0] = padding[1] = 0;
-            lrn_local_size = 0;
-            lrn_alpha = 0.0f;
-            lrn_beta = 0.0f;
-            lrn_k = 1.0f;
         }
 
         void init_dense(int dim[3], int p_dim[3]){
@@ -370,30 +361,6 @@ class Layer{
             reset_spatial_config();
         }
 
-        void init_lrn(int dim[3], int in_dim[3], int local_size, float alpha, float beta, float k){
-            type = Layer_type::LRN;
-
-            validate_positive_dims(dim, "init_lrn output");
-            validate_positive_dims(in_dim, "init_lrn input");
-            require_condition(dim[0] == in_dim[0] && dim[1] == in_dim[1] && dim[2] == in_dim[2], "init_lrn: input e output devono avere la stessa shape");
-            require_condition(local_size > 0, "init_lrn: local_size deve essere positivo");
-            require_condition(local_size % 2 == 1, "init_lrn: local_size deve essere dispari");
-            require_condition(alpha >= 0.0f, "init_lrn: alpha non puo' essere negativo");
-            require_condition(beta >= 0.0f, "init_lrn: beta non puo' essere negativo");
-            require_condition(k > 0.0f, "init_lrn: k deve essere positivo");
-
-            set_dims(dim);
-            set_input_dims(in_dim);
-            reset_dense_storage();
-            reset_conv_storage();
-            reset_spatial_config();
-
-            lrn_local_size = (local_size > 0) ? local_size : 1;
-            lrn_alpha = alpha;
-            lrn_beta = beta;
-            lrn_k = k;
-        }
-
         void init_softmax(int dim[3], int in_dim[3]){
             type = Layer_type::Softmax;
 
@@ -431,7 +398,6 @@ inline void init_layer_runtime(const Layer &layer, LayerRuntime &runtime){
                 runtime.pooling_argmax.assign(static_cast<std::size_t>(layer.flat_output_size()), -1);
             }
             break;
-        case Layer_type::LRN:
         case Layer_type::Softmax:
             runtime.resize(layer.dim_layer, true);
             break;
@@ -482,7 +448,6 @@ inline const std::vector<float> &runtime_output_buffer(const Layer &layer, const
         case Layer_type::Input:
         case Layer_type::Pooling:
         case Layer_type::Flatten:
-        case Layer_type::LRN:
         case Layer_type::Softmax:
             return runtime.y.data;
     }
@@ -499,7 +464,6 @@ inline const std::vector<float> &runtime_activation_buffer(const Layer &layer, c
         case Layer_type::Pooling:
         case Layer_type::Flatten:
             return runtime.y.data;
-        case Layer_type::LRN:
         case Layer_type::Softmax:
             return runtime.a.data;
     }
@@ -514,7 +478,6 @@ inline const std::vector<float> &runtime_delta_buffer(const Layer &layer, const 
         case Layer_type::Input:
         case Layer_type::Pooling:
         case Layer_type::Flatten:
-        case Layer_type::LRN:
         case Layer_type::Softmax:
             return runtime.delta.data;
     }

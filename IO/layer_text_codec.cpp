@@ -10,7 +10,6 @@ Layer_type parse_layer_type(const std::string &type){
     if(type == "Conv") return Layer_type::Conv;
     if(type == "Pooling") return Layer_type::Pooling;
     if(type == "Flatten") return Layer_type::Flatten;
-    if(type == "LRN") return Layer_type::LRN;
     if(type == "Softmax") return Layer_type::Softmax;
     throw std::invalid_argument("Tipo layer non riconosciuto nel file: " + type);
 }
@@ -34,8 +33,6 @@ std::string layer_type_to_string(Layer_type type){
             return "Pooling";
         case Layer_type::Flatten:
             return "Flatten";
-        case Layer_type::LRN:
-            return "LRN";
         case Layer_type::Softmax:
             return "Softmax";
     }

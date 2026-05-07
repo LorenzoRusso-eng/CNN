@@ -6,7 +6,6 @@
 #include "kernels/general.hpp"
 #include "kernels/pooling.hpp"
 #include "kernels/im2col.hpp"
-#include "kernels/lrn.hpp"
 #include "kernels/softmax.hpp"
 
 #include <algorithm>
@@ -296,15 +295,6 @@ void backprop_batch(
                 current_runtime.delta.copy_from_device(current_runtime.backprop_cost_from_next);
                 break;
             case Layer_type::Flatten:
-                build_cost_from_next_layer_all_batch(
-                    current_runtime,
-                    *next, *next_runtime, cuda_params, l + 1,
-                    velocity, momentum, 
-                    current_runtime.backprop_cost_from_next
-                );
-                current_runtime.delta.copy_from_device(current_runtime.backprop_cost_from_next);
-                break;
-            case Layer_type::LRN:
                 build_cost_from_next_layer_all_batch(
                     current_runtime,
                     *next, *next_runtime, cuda_params, l + 1,

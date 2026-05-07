@@ -3,7 +3,6 @@
 #include "kernels/general.hpp"
 #include "kernels/pooling.hpp"
 #include "kernels/im2col.hpp"
-#include "kernels/lrn.hpp"
 #include "kernels/softmax.hpp"
 
 #include <algorithm>
@@ -230,39 +229,6 @@ void build_cost_from_next_pool_all_batch(
 }
 
 
-void build_cost_from_next_lrn_all_batch(
-    CudaBatchLayerRuntime &current_runtime, 
-    const Layer &next, const CudaBatchLayerRuntime &next_runtime,
-    cuda_backend::CudaBatchTensor<float> &out_cost
-){
-
-    const float *prev_out = current_runtime.y.data();
-    float *prev_delta = out_cost.data();
-    const float *next_out = next_runtime.y.data();
-    const float *next_delta = next_runtime.delta.data();
-
-    const int channels = current_runtime.y.channels();
-
-    const int total_size = current_runtime.y.size();
-    const int prev_total_size = static_cast<int>(out_cost.size());
-
-    const int window_size = std::max(1, next.lrn_local_size);
-    const float alpha_over_size = next.lrn_alpha / static_cast<float>(window_size);
-    const float lrn_k = next.lrn_k;
-    const float lrn_beta = next.lrn_beta;
-
-    int GridDim = (prev_total_size + 256 -1) / 256;
-
-    lrn_backward <<< GridDim, 256 >>>(
-        next_delta,
-        window_size, total_size, channels,
-        prev_delta, prev_out,
-        alpha_over_size, lrn_beta, lrn_k
-    );
-    cuda_backend::check_cuda_kernel("backward lrn_backward");
-
-}
-
 } // namespace
 
 void build_cost_from_next_layer_all_batch(
@@ -306,13 +272,6 @@ void build_cost_from_next_layer_all_batch(
 
         case Layer_type::Flatten:
             out_cost.copy_data_from_device(next_runtime.delta);
-            break;
-
-        case Layer_type::LRN:
-            build_cost_from_next_lrn_all_batch(
-                current_runtime,
-                next, next_runtime, 
-                out_cost);
             break;
 
         case Layer_type::Softmax:

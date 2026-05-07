@@ -4,7 +4,6 @@
 #include "kernels/general.hpp"
 #include "kernels/pooling.hpp"
 #include "kernels/im2col.hpp"
-#include "kernels/lrn.hpp"
 #include "kernels/softmax.hpp"
 
 #include <algorithm>
@@ -282,33 +281,6 @@ void forward_pooling_layer_batch(
     }
 }
 
-void forward_lrn_layer_batch(
-    const Layer &current, CudaBatchLayerRuntime &current_runtime,
-    const CudaBatchLayerRuntime &previous_runtime
-){
-
-    const int window_size = std::max(1, current.lrn_local_size);
-    const float alpha_over_size = current.lrn_alpha / static_cast<float>(window_size);
-    const float lrn_k = current.lrn_k;
-    const float lrn_beta = current.lrn_beta;
-
-    const float *input = previous_runtime.y.data();
-    float *output = current_runtime.y.data();
-
-    const int channels = current_runtime.y.channels();
-    const int total_size = static_cast<int>(current_runtime.y.size());
-
-    int Grid_dim = (total_size + 256 -1) / 256;
-    
-    lrn_forward <<< Grid_dim, 256 >>> (
-        input, output,
-        window_size, total_size, channels,
-        alpha_over_size, lrn_beta, lrn_k
-    );
-    cuda_backend::check_cuda_kernel("forward lrn_forward");
-
-}
-
 void forward_softmax_layer_batch(
     const Layer &current, CudaBatchLayerRuntime &current_runtime,
     const CudaBatchLayerRuntime &previous_runtime
@@ -464,12 +436,6 @@ void forwardprop_batch(
                 break;
             case Layer_type::Flatten:
                 current_runtime.y.copy_data_from_device(previous_runtime.y);
-                break;
-            case Layer_type::LRN:
-                forward_lrn_layer_batch(
-                    current, current_runtime,
-                    previous_runtime
-                );
                 break;
             case Layer_type::Softmax:
                 forward_softmax_layer_batch(

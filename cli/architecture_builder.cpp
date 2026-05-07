@@ -5,7 +5,6 @@
 #include "cli/cli_utils.hpp"
 
 #include <iostream>
-#include <limits>
 #include <stdexcept>
 
 void create_architecture(int &num_layers, int input_shape[3], int num_classes, LayerList &architecture){
@@ -30,7 +29,7 @@ void create_architecture(int &num_layers, int input_shape[3], int num_classes, L
         const Layer &previous = architecture[i - 1];
         int layer_choice = 0;
 
-        layer_choice = read_bounded_int("Scegliere il tipo del layer " + std::to_string(i + 1) + ": 1=Conv 2=LRN 3=Pooling 4=Flatten 5=Dense", 1, 5);
+        layer_choice = read_bounded_int("Scegliere il tipo del layer " + std::to_string(i + 1) + ": 1=Conv 2=Pooling 3=Flatten 4=Dense", 1, 4);
 
         switch(layer_choice){
             case 1: {
@@ -59,32 +58,6 @@ void create_architecture(int &num_layers, int input_shape[3], int num_classes, L
             }
 
             case 2: {
-                int out_dim[3] = {
-                    previous.dim_layer[0],
-                    previous.dim_layer[1],
-                    previous.dim_layer[2]
-                };
-                int local_size = 0;
-                do{
-                    local_size = read_bounded_int("Dimensione locale LRN (dispari)", 1);
-                    if(local_size % 2 == 0){
-                        std::cout << "La dimensione locale LRN deve essere dispari." << std::endl;
-                    }
-                } while(local_size % 2 == 0);
-                const float alpha = read_bounded_float("Parametro alpha LRN", 0.0f);
-                const float beta = read_bounded_float("Parametro beta LRN", 0.0f);
-                const float k = read_bounded_float(
-                    "Parametro k LRN",
-                    std::numeric_limits<float>::epsilon(),
-                    std::numeric_limits<float>::max(),
-                    "Inserire un valore maggiore di 0."
-                );
-
-                architecture[i].init_lrn(out_dim, architecture[i - 1].dim_layer, local_size, alpha, beta, k);
-                break;
-            }
-
-            case 3: {
                 if(previous.type == Layer_type::Flatten){
                     throw std::invalid_argument("Non e' possibile aggiungere un layer Pooling dopo un Flatten");
                 }
@@ -130,7 +103,7 @@ void create_architecture(int &num_layers, int input_shape[3], int num_classes, L
                 break;
             }
 
-            case 4: {
+            case 3: {
                 if(previous.type == Layer_type::Flatten){
                     throw std::invalid_argument("Non e' possibile applicare Flatten due volte di fila");
                 }
@@ -145,7 +118,7 @@ void create_architecture(int &num_layers, int input_shape[3], int num_classes, L
                 break;
             }
 
-            case 5: {
+            case 4: {
                 int out_dim[3] = {0, 1, 1};
                 out_dim[0] = read_bounded_int("Numero di neuroni del layer Dense", 1);
                 architecture[i].init_dense(out_dim, architecture[i - 1].dim_layer);

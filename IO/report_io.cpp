@@ -38,11 +38,6 @@ namespace{
                        ", kernel=" + format_dim(layer.kernel_dim) +
                        ", stride=" + std::to_string(layer.stride[0]) + "x" + std::to_string(layer.stride[1]) +
                        ", padding=" + std::to_string(layer.padding[0]) + "x" + std::to_string(layer.padding[1]);
-            case Layer_type::LRN:
-                return "local_size=" + std::to_string(layer.lrn_local_size) +
-                       ", alpha=" + std::to_string(layer.lrn_alpha) +
-                       ", beta=" + std::to_string(layer.lrn_beta) +
-                       ", k=" + std::to_string(layer.lrn_k);
             case Layer_type::Input:
             case Layer_type::Flatten:
             case Layer_type::Softmax:
