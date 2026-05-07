@@ -31,3 +31,6 @@ compile_commands.json
 # Logs
 *.log
 progetto.zip
+
+#ipynb files
+/.ipynb*/
