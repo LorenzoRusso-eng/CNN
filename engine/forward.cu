@@ -435,7 +435,13 @@ void forwardprop_batch(
                 );
                 break;
             case Layer_type::Flatten:
-                current_runtime.y.copy_data_from_device(previous_runtime.y);
+                current_runtime.y.alias_from(
+                    previous_runtime.y,
+                    previous_runtime.y.batch_size(),
+                    current.dim_layer[0],
+                    current.dim_layer[1],
+                    current.dim_layer[2]
+                );
                 break;
             case Layer_type::Softmax:
                 forward_softmax_layer_batch(

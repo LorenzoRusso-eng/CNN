@@ -36,6 +36,7 @@ public:
     void copy_from_device(const CudaBatchTensor<T> &src);
     void copy_data_from_device(const CudaBatchTensor<T> &src);
     void copy_to_host(T *dst, std::size_t count) const;
+    void alias_from(const CudaBatchTensor<T> &src, int batch_size, int h, int w, int ch);
 
     T *data() noexcept { return ptr_; }
     const T *data() const noexcept { return ptr_; }
@@ -46,6 +47,7 @@ public:
     int width() const noexcept { return width_; };
     int channels() const noexcept { return channels_; };
     bool empty() const noexcept { return size_ == 0; }
+    bool owns_data() const noexcept { return owns_data_; }
 
 private:
     T *ptr_ = nullptr;
@@ -55,6 +57,7 @@ private:
     int height_ = 0;
     int width_ = 0;
     int channels_ = 0;
+    bool owns_data_ = true;
 };
 
 struct CublasContext {

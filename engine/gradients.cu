@@ -292,7 +292,13 @@ void backprop_batch(
                     velocity, momentum, 
                     current_runtime.backprop_cost_from_next
                 );
-                current_runtime.delta.copy_from_device(current_runtime.backprop_cost_from_next);
+                current_runtime.delta.alias_from(
+                    current_runtime.backprop_cost_from_next,
+                    current_runtime.y.batch_size(),
+                    current.dim_layer[0],
+                    current.dim_layer[1],
+                    current.dim_layer[2]
+                );
                 break;
             case Layer_type::Flatten:
                 build_cost_from_next_layer_all_batch(
@@ -301,7 +307,13 @@ void backprop_batch(
                     velocity, momentum, 
                     current_runtime.backprop_cost_from_next
                 );
-                current_runtime.delta.copy_from_device(current_runtime.backprop_cost_from_next);
+                current_runtime.delta.alias_from(
+                    current_runtime.backprop_cost_from_next,
+                    current_runtime.y.batch_size(),
+                    current.dim_layer[0],
+                    current.dim_layer[1],
+                    current.dim_layer[2]
+                );
                 break;
             case Layer_type::Softmax: {
                 int GridDim = (current_runtime.y.size() + 256 -1) / 256;

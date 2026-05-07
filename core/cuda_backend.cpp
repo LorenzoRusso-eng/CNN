@@ -46,7 +46,8 @@ CudaBatchTensor<T>::CudaBatchTensor(CudaBatchTensor &&other) noexcept
       batch_size_(other.batch_size_),
       height_(other.height_),
       width_(other.width_),
-      channels_(other.channels_){
+      channels_(other.channels_),
+      owns_data_(other.owns_data_){
     other.ptr_ = nullptr;
     other.size_ = 0;
     other.capacity_ = 0;
@@ -54,6 +55,7 @@ CudaBatchTensor<T>::CudaBatchTensor(CudaBatchTensor &&other) noexcept
     other.height_ = 0;
     other.width_ = 0;
     other.channels_ = 0;
+    other.owns_data_ = true;
 }
 
 template <typename T>
@@ -67,6 +69,7 @@ CudaBatchTensor<T> &CudaBatchTensor<T>::operator=(CudaBatchTensor &&other) noexc
         height_ = other.height_;
         width_ = other.width_;
         channels_ = other.channels_;
+        owns_data_ = other.owns_data_;
         other.ptr_ = nullptr;
         other.size_ = 0;
         other.capacity_ = 0;
@@ -74,23 +77,25 @@ CudaBatchTensor<T> &CudaBatchTensor<T>::operator=(CudaBatchTensor &&other) noexc
         other.height_ = 0;
         other.width_ = 0;
         other.channels_ = 0;
+        other.owns_data_ = true;
     }
     return *this;
 }
 
 template <typename T>
 void CudaBatchTensor<T>::ensure_capacity(std::size_t count){
-    if(count <= capacity_){
+    if(owns_data_ && count <= capacity_){
         return;
     }
 
     T *new_ptr = nullptr;
     check_cuda(cudaMalloc(reinterpret_cast<void **>(&new_ptr), count * sizeof(T)), "cudaMalloc");
-    if(ptr_ != nullptr){
+    if(owns_data_ && ptr_ != nullptr){
         check_cuda(cudaFree(ptr_), "cudaFree");
     }
     ptr_ = new_ptr;
     capacity_ = count;
+    owns_data_ = true;
 }
 
 template <typename T>
@@ -120,7 +125,7 @@ void CudaBatchTensor<T>::clear() noexcept{
 
 template <typename T>
 void CudaBatchTensor<T>::release() noexcept{
-    if(ptr_ != nullptr){
+    if(owns_data_ && ptr_ != nullptr){
         cudaFree(ptr_);
     }
     ptr_ = nullptr;
@@ -130,6 +135,7 @@ void CudaBatchTensor<T>::release() noexcept{
     height_ = 0;
     width_ = 0;
     channels_ = 0;
+    owns_data_ = true;
 }
 
 template <typename T>
@@ -168,6 +174,26 @@ void CudaBatchTensor<T>::copy_to_host(T *dst, std::size_t count) const{
     if(count > 0){
         check_cuda(cudaMemcpy(dst, ptr_, count * sizeof(T), cudaMemcpyDeviceToHost), "cudaMemcpy DeviceToHost");
     }
+}
+
+template <typename T>
+void CudaBatchTensor<T>::alias_from(const CudaBatchTensor<T> &src, int batch_size, int h, int w, int ch){
+    require_condition(batch_size >= 0 && h >= 0 && w >= 0 && ch >= 0,
+                      "CudaBatchTensor::alias_from: dimensioni negative");
+    const std::size_t count = static_cast<std::size_t>(batch_size) *
+                              static_cast<std::size_t>(h) *
+                              static_cast<std::size_t>(w) *
+                              static_cast<std::size_t>(ch);
+    require_condition(count == src.size(), "CudaBatchTensor::alias_from: shape alias incompatibile");
+    release();
+    ptr_ = const_cast<T *>(src.data());
+    size_ = count;
+    capacity_ = 0;
+    batch_size_ = batch_size;
+    height_ = h;
+    width_ = w;
+    channels_ = ch;
+    owns_data_ = false;
 }
 
 template class CudaBatchTensor<float>;
@@ -254,12 +280,26 @@ void init_cuda_batch_runtime_buffers(const LayerList &architecture, CudaBatchRun
         const Layer &layer = architecture[layer_index];
         const int flat_size = layer.flat_output_size();
         const bool uses_activation = layer.type == Layer_type::Dense || layer.type == Layer_type::Conv;
+        const bool next_cost_can_alias =
+            layer_index + 1 < architecture.size() &&
+            (architecture[layer_index + 1].type == Layer_type::Flatten ||
+             architecture[layer_index + 1].type == Layer_type::Softmax);
+        const bool delta_can_alias =
+            layer_index + 1 < architecture.size() &&
+            (layer.type == Layer_type::Pooling ||
+             layer.type == Layer_type::Flatten);
 
         state.batch_size = batch_size;
         state.flat_size = flat_size;
-        state.y.resize(batch_size, layer.dim_layer[0], layer.dim_layer[1], layer.dim_layer[2]);
-        state.delta.resize(batch_size, layer.dim_layer[0], layer.dim_layer[1], layer.dim_layer[2]);
-        state.backprop_cost_from_next.resize(batch_size, layer.dim_layer[0], layer.dim_layer[1], layer.dim_layer[2]);
+        if(layer.type != Layer_type::Flatten){
+            state.y.resize(batch_size, layer.dim_layer[0], layer.dim_layer[1], layer.dim_layer[2]);
+        }
+        if(!delta_can_alias){
+            state.delta.resize(batch_size, layer.dim_layer[0], layer.dim_layer[1], layer.dim_layer[2]);
+        }
+        if(!next_cost_can_alias){
+            state.backprop_cost_from_next.resize(batch_size, layer.dim_layer[0], layer.dim_layer[1], layer.dim_layer[2]);
+        }
 
         if(layer_index + 1 == architecture.size()){
             state.loss_values.resize(batch_size, layer.dim_layer[0], layer.dim_layer[1], layer.dim_layer[2]);
@@ -298,7 +338,9 @@ void init_cuda_forward_batch_runtime_buffers(const LayerList &architecture, Cuda
 
         state.batch_size = batch_size;
         state.flat_size = flat_size;
-        state.y.resize(batch_size, layer.dim_layer[0], layer.dim_layer[1], layer.dim_layer[2]);
+        if(layer.type != Layer_type::Flatten){
+            state.y.resize(batch_size, layer.dim_layer[0], layer.dim_layer[1], layer.dim_layer[2]);
+        }
 
         if(layer.type == Layer_type::Dense || layer.type == Layer_type::Conv){
             state.a.resize(batch_size, layer.dim_layer[0], layer.dim_layer[1], layer.dim_layer[2]);

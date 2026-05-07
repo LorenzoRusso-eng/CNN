@@ -241,11 +241,10 @@ void build_cost_from_next_layer_all_batch(
     const int height = current_runtime.y.height();
     const int width = current_runtime.y.width();
     const int channels = current_runtime.y.channels();
-    
-    out_cost.resize(batch_size, height, width, channels);
 
     switch(next.type){
         case Layer_type::Dense:
+            out_cost.resize(batch_size, height, width, channels);
             build_cost_from_next_dense_all_batch(
                 next_runtime, cuda_params, next_layer_index,
                 velocity, momentum,
@@ -254,6 +253,7 @@ void build_cost_from_next_layer_all_batch(
             break;
 
         case Layer_type::Conv:
+            out_cost.resize(batch_size, height, width, channels);
             build_cost_from_next_conv_all_batch(
                 current_runtime,
                 next, next_runtime, cuda_params, next_layer_index,
@@ -263,6 +263,7 @@ void build_cost_from_next_layer_all_batch(
             break;
 
         case Layer_type::Pooling:
+            out_cost.resize(batch_size, height, width, channels);
             build_cost_from_next_pool_all_batch(
                 current_runtime,
                 next, next_runtime,
@@ -271,11 +272,11 @@ void build_cost_from_next_layer_all_batch(
             break;
 
         case Layer_type::Flatten:
-            out_cost.copy_data_from_device(next_runtime.delta);
+            out_cost.alias_from(next_runtime.delta, batch_size, height, width, channels);
             break;
 
         case Layer_type::Softmax:
-            out_cost.copy_from_device(next_runtime.delta);
+            out_cost.alias_from(next_runtime.delta, batch_size, height, width, channels);
             break;
 
         case Layer_type::Input:
