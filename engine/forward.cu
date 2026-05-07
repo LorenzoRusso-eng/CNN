@@ -65,8 +65,13 @@ void forward_dense_layer_batch(
             weights_data, in_features,
             input, in_features,
             &beta, a, out_features
-        ), "forward dense cublasSgemm");
-        apply_bias_activation <<< activation_grid_dim, 256 >>> (bias_data, a, y, output_size, out_features, act.kind, act.alpha, act.beta);
+        ), "forward dense cublasSgemm"
+    );
+        apply_bias_activation <<< activation_grid_dim, 256 >>> (
+            bias_data, a, y,
+            output_size, out_features, 
+            act.kind, act.alpha, act.beta
+        );
         cuda_backend::check_cuda_kernel("forward dense apply_bias_activation");
         return;
     }
