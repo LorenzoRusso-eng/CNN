@@ -133,11 +133,11 @@ void forward_conv_layer_batch(
     const int output_size = static_cast<int>(current_runtime.y.size());
     const int output_channels = current_runtime.y.channels();
 
-    const int kernel_height = current.kernel_dim[0]; 
-    const int kernel_width = current.kernel_dim[1];
-    const int kernel_channels = current.kernel_dim[2];
+    const int kernel_height = current.kernel_shape[0];
+    const int kernel_width = current.kernel_shape[1];
+    const int kernel_channels = current.kernel_shape[2];
 
-    const int patch_size = current.kernel_dim[0] * current.kernel_dim[1] * current.kernel_dim[2];
+    const int patch_size = current.kernel_shape[0] * current.kernel_shape[1] * current.kernel_shape[2];
     const int out_features = current.dim_layer[0] * current.dim_layer[1];
     const int total_patches = batch_size * out_features;
 
@@ -232,8 +232,8 @@ void forward_pooling_layer_batch(
     const int output_width = current.dim_layer[1];
     const int output_channels = current.dim_layer[2];
     
-    const int kernel_height = current.kernel_dim[0];
-    const int kernel_width = current.kernel_dim[1];
+    const int kernel_height = current.pool_window_shape[0];
+    const int kernel_width = current.pool_window_shape[1];
 
     const int stride_h = current.stride[0];
     const int stride_w = current.stride[1];
@@ -397,18 +397,17 @@ void fill_target_batch(
 }
 
 void forwardprop_batch(
-    const LayerList &architecture, cuda_backend::CudaBatchRuntimeList &runtime, int num_layers, const CudaParameterBuffer &cuda_params,
+    const LayerList &architecture, cuda_backend::CudaBatchRuntimeList &runtime, const CudaParameterBuffer &cuda_params,
     const Activation &hidden_activation, const Activation &output_activation,
     const CudaParameterBuffer *velocity, float momentum
 ){
+    const int num_layers = static_cast<int>(architecture.size());
     for(int l = 1; l < num_layers; l++){
         const Layer &current = architecture[l];
         const Layer &previous = architecture[l - 1];
-        const Layer *next = (l < num_layers - 1) ? &architecture[l + 1] : nullptr;
 
         CudaBatchLayerRuntime &current_runtime = runtime[l];
-        const CudaBatchLayerRuntime &previous_runtime = runtime[l - 1];
-        const CudaBatchLayerRuntime *next_runtime = (l < num_layers - 1) ? &runtime[l + 1] : nullptr;
+        CudaBatchLayerRuntime &previous_runtime = runtime[l - 1];
 
         const bool next_is_softmax = (l < num_layers - 1) && (architecture[l + 1].type == Layer_type::Softmax);
         const Activation &act = next_is_softmax ? identity : (l < num_layers - 1) ? hidden_activation : output_activation;

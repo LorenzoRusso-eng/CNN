@@ -11,6 +11,10 @@ inline bool dims_match(const int lhs[3], const int rhs[3]){
     return lhs[0] == rhs[0] && lhs[1] == rhs[1] && lhs[2] == rhs[2];
 }
 
+inline bool dims_match(const Shape3D &lhs, const Shape3D &rhs){
+    return lhs.height == rhs.height && lhs.width == rhs.width && lhs.channels == rhs.channels;
+}
+
 inline void require_condition(bool condition, const std::string &message){
     if(!condition){
         throw std::invalid_argument(message);
@@ -23,8 +27,18 @@ inline void validate_tensor_shape(const Tensor &tensor, const int expected_dim[3
     require_condition(tensor.channels == expected_dim[2], context + ": dimensione asse 2 incoerente");
 }
 
+inline void validate_tensor_shape(const Tensor &tensor, const Shape3D &expected_dim, const std::string &context){
+    require_condition(tensor.height == expected_dim.height, context + ": dimensione asse 0 incoerente");
+    require_condition(tensor.width == expected_dim.width, context + ": dimensione asse 1 incoerente");
+    require_condition(tensor.channels == expected_dim.channels, context + ": dimensione asse 2 incoerente");
+}
+
 inline void validate_positive_dims(const int dim[3], const std::string &context){
     require_condition(dim[0] > 0 && dim[1] > 0 && dim[2] > 0, context + ": tutte le dimensioni devono essere positive");
+}
+
+inline void validate_positive_dims(const Shape3D &dim, const std::string &context){
+    require_condition(dim.height > 0 && dim.width > 0 && dim.channels > 0, context + ": tutte le dimensioni devono essere positive");
 }
 
 inline int compute_spatial_output_dim(int input_size, int kernel_size, int stride_size, int padding_size, const std::string &context, const std::string &axis){

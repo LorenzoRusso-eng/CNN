@@ -49,10 +49,11 @@ void validate_loss_output_compatibility(const Layer &output_layer, const Loss &c
     }
 }
 
-void validate_training_setup(const LayerList &architecture, int num_layers, const std::vector<int> &indices, const LazyDataset &dataset, const Loss &loss, const Activation &output_activation, const std::string &context){
-    validate_architecture(architecture, num_layers, context);
+void validate_training_setup(const LayerList &architecture, const std::vector<int> &indices, const LazyDataset &dataset, const Loss &loss, const Activation &output_activation, const std::string &context){
+    validate_architecture(architecture, context);
     require_condition(!indices.empty(), context + ": nessun esempio di training selezionato");
-    validate_dataset_indices_io_shapes(architecture, num_layers, dataset, indices, context);
+    validate_dataset_indices_io_shapes(architecture, dataset, indices, context);
+    const int num_layers = static_cast<int>(architecture.size());
     validate_loss_output_compatibility(architecture[num_layers - 1], loss, output_activation);
 }
 
@@ -80,7 +81,6 @@ bool has_significant_relative_improvement(float previous_best_accuracy, float cu
 
 bool update_validation_tracker(
     LayerList &architecture,
-    int num_layers,
     const cuda_backend::CudaParameterBuffer &parameters,
     cuda_backend::CudaBatchRuntimeList &validation_runtime,
     const std::vector<int> *validation_indices,
@@ -99,7 +99,7 @@ bool update_validation_tracker(
     const float previous_best_accuracy = tracker.best_accuracy;
     const bool first_observation = !tracker.observed;
     const float validation_accuracy = run_validation_accuracy(
-        architecture, num_layers,
+        architecture,
         parameters, validation_runtime,
         *validation_indices, dataset,
         hidden_activation, output_activation,
@@ -223,11 +223,11 @@ void for_each_batch(int num_tr, int batch_size, Fn &&fn){
 } // namespace training_iteration
 
 TrainingSummary train_batch(
-    LayerList &architecture, int num_layers, int chunk_size,
+    LayerList &architecture, int chunk_size,
     const Decay &learning_rate_decay,
     int num_epochs, float target_loss, vector<int> &train_indices, const LazyDataset &dataset, const Loss &loss, const Activation &hidden_activation, const Activation &output_activation, float momentum, cuda_backend::CudaParameterBuffer &parameters, const std::vector<int> *validation_indices, const EarlyStoppingConfig *early_stopping){
     training_progress::print_training_banner();
-    validate_training_setup(architecture, num_layers, train_indices, dataset, loss, output_activation, "train_batch");
+    validate_training_setup(architecture, train_indices, dataset, loss, output_activation, "train_batch");
     int num_tr = static_cast<int>(train_indices.size());
     float last_epoch_loss = std::numeric_limits<float>::quiet_NaN();
     int executed_epochs = 0;
@@ -264,7 +264,7 @@ TrainingSummary train_batch(
         cuda_backend::zero_cuda_parameter_buffer(architecture, gradients);
         training_iteration::for_each_batch(num_tr, effective_chunk_size, [&](int start, int end, int size){
             loss_value += training_batches::train_batch_chunk(
-                architecture, parameters, runtime, num_layers,
+                architecture, parameters, runtime,
                 chunk_gradients, target_batch,
                 dataset, train_indices,
                 start, end,
@@ -273,14 +273,14 @@ TrainingSummary train_batch(
 
             const float gradient_scale = static_cast<float>(size) / static_cast<float>(num_tr);
             accumulate_scaled_gradients(
-                architecture, num_layers,
+                architecture,
                 gradients, chunk_gradients,
                 gradient_scale
             );
         });
 
         optimizer_step(
-            architecture, num_layers,
+            architecture,
             gradients, velocity, parameters,
             current_learning_rate, momentum
         );
@@ -289,7 +289,7 @@ TrainingSummary train_batch(
         const double epoch_seconds = elapsed_seconds(epoch_start);
         epoch_times_seconds.push_back(epoch_seconds);
         const bool validation_improved = update_validation_tracker(
-            architecture, num_layers,
+            architecture,
             parameters, validation_runtime,
             validation_indices, dataset,
             hidden_activation, output_activation,
@@ -312,9 +312,9 @@ TrainingSummary train_batch(
     return training_progress::make_summary(executed_epochs, last_epoch_loss, epoch_times_seconds, total_training_seconds, stopped_by_loss, stopped_by_validation, validation_tracker);
 }
 
-TrainingSummary train_sgd(LayerList &architecture, int num_layers, int batch_size, const Decay &learning_rate_decay, int num_epochs, float target_loss, vector<int> &train_indices, const LazyDataset &dataset, const Loss &loss, const Activation &hidden_activation, const Activation &output_activation, float momentum, cuda_backend::CudaParameterBuffer &parameters, const std::vector<int> *validation_indices, const EarlyStoppingConfig *early_stopping){
+TrainingSummary train_sgd(LayerList &architecture, int batch_size, const Decay &learning_rate_decay, int num_epochs, float target_loss, vector<int> &train_indices, const LazyDataset &dataset, const Loss &loss, const Activation &hidden_activation, const Activation &output_activation, float momentum, cuda_backend::CudaParameterBuffer &parameters, const std::vector<int> *validation_indices, const EarlyStoppingConfig *early_stopping){
     training_progress::print_training_banner();
-    validate_training_setup(architecture, num_layers, train_indices, dataset, loss, output_activation, "train_sgd");
+    validate_training_setup(architecture, train_indices, dataset, loss, output_activation, "train_sgd");
     int num_tr = static_cast<int>(train_indices.size());
     float last_epoch_loss = std::numeric_limits<float>::quiet_NaN();
     int executed_epochs = 0;
@@ -348,7 +348,7 @@ TrainingSummary train_sgd(LayerList &architecture, int num_layers, int batch_siz
 
         training_iteration::for_each_batch(num_tr, effective_batch_size, [&](int start, int end, int){
             loss_value += training_batches::train_batch_chunk(
-                architecture, parameters, runtime, num_layers,
+                architecture, parameters, runtime,
                 gradients, target_batch,
                 dataset, train_indices,
                 start, end,
@@ -356,7 +356,7 @@ TrainingSummary train_sgd(LayerList &architecture, int num_layers, int batch_siz
             );
 
             optimizer_step(
-                architecture, num_layers,
+                architecture,
                 gradients, velocity, parameters,
                 current_learning_rate, momentum
             );
@@ -367,7 +367,7 @@ TrainingSummary train_sgd(LayerList &architecture, int num_layers, int batch_siz
         const double epoch_seconds = elapsed_seconds(epoch_start);
         epoch_times_seconds.push_back(epoch_seconds);
         const bool validation_improved = update_validation_tracker(
-            architecture, num_layers,
+            architecture,
             parameters, validation_runtime,
             validation_indices, dataset,
             hidden_activation, output_activation,
@@ -389,9 +389,9 @@ TrainingSummary train_sgd(LayerList &architecture, int num_layers, int batch_siz
     return training_progress::make_summary(executed_epochs, last_epoch_loss, epoch_times_seconds, total_training_seconds, stopped_by_loss, stopped_by_validation, validation_tracker);
 }
 
-TrainingSummary train_sgd_online(LayerList &architecture, int num_layers, int steps, const Decay &learning_rate_decay, int num_epochs, float target_loss, vector<int> &train_indices, const LazyDataset &dataset, const Loss &loss, const Activation &hidden_activation, const Activation &output_activation, float momentum, cuda_backend::CudaParameterBuffer &parameters, const std::vector<int> *validation_indices, const EarlyStoppingConfig *early_stopping){
+TrainingSummary train_sgd_online(LayerList &architecture, int steps, const Decay &learning_rate_decay, int num_epochs, float target_loss, vector<int> &train_indices, const LazyDataset &dataset, const Loss &loss, const Activation &hidden_activation, const Activation &output_activation, float momentum, cuda_backend::CudaParameterBuffer &parameters, const std::vector<int> *validation_indices, const EarlyStoppingConfig *early_stopping){
     training_progress::print_training_banner();
-    validate_training_setup(architecture, num_layers, train_indices, dataset, loss, output_activation, "train_sgd_online");
+    validate_training_setup(architecture, train_indices, dataset, loss, output_activation, "train_sgd_online");
     int num_tr = static_cast<int>(train_indices.size());
     const int effective_steps = validated_training_window(steps, num_tr, "train_sgd_online");
     const int windows = static_cast<int>(std::ceil(static_cast<float>(num_tr) / effective_steps));
@@ -429,14 +429,14 @@ TrainingSummary train_sgd_online(LayerList &architecture, int num_layers, int st
 
             for(int t=start; t<end; t++){
                 loss_value += training_batches::train_batch_chunk(
-                    architecture, parameters, runtime, num_layers,
+                    architecture, parameters, runtime,
                     gradients, target_batch,
                     dataset, train_indices,
                     t, t + 1,
                     loss, hidden_activation, output_activation
                 );
                 optimizer_step(
-                    architecture, num_layers,
+                    architecture,
                     gradients, velocity, parameters,
                     current_learning_rate, momentum
                 );
@@ -459,7 +459,7 @@ TrainingSummary train_sgd_online(LayerList &architecture, int num_layers, int st
         epoch_times_seconds.push_back(epoch_seconds);
         executed_epochs = e + 1;
         const bool validation_improved = update_validation_tracker(
-            architecture, num_layers,
+            architecture,
             parameters, validation_runtime,
             validation_indices, dataset,
             hidden_activation, output_activation,
@@ -480,9 +480,9 @@ TrainingSummary train_sgd_online(LayerList &architecture, int num_layers, int st
     return training_progress::make_summary(executed_epochs, last_observed_loss, epoch_times_seconds, total_training_seconds, stopped_by_loss, stopped_by_validation, validation_tracker);
 }
 
-TrainingSummary train_batch_nesterov(LayerList &architecture, int num_layers, int chunk_size, const Decay &learning_rate_decay, int num_epochs, float target_loss, vector<int> &train_indices, const LazyDataset &dataset, const Loss &loss, const Activation &hidden_activation, const Activation &output_activation, float momentum, cuda_backend::CudaParameterBuffer &parameters, const std::vector<int> *validation_indices, const EarlyStoppingConfig *early_stopping){
+TrainingSummary train_batch_nesterov(LayerList &architecture, int chunk_size, const Decay &learning_rate_decay, int num_epochs, float target_loss, vector<int> &train_indices, const LazyDataset &dataset, const Loss &loss, const Activation &hidden_activation, const Activation &output_activation, float momentum, cuda_backend::CudaParameterBuffer &parameters, const std::vector<int> *validation_indices, const EarlyStoppingConfig *early_stopping){
     training_progress::print_training_banner();
-    validate_training_setup(architecture, num_layers, train_indices, dataset, loss, output_activation, "train_batch_nesterov");
+    validate_training_setup(architecture, train_indices, dataset, loss, output_activation, "train_batch_nesterov");
     int num_tr = static_cast<int>(train_indices.size());
     float last_epoch_loss = std::numeric_limits<float>::quiet_NaN();
     int executed_epochs = 0;
@@ -518,7 +518,7 @@ TrainingSummary train_batch_nesterov(LayerList &architecture, int num_layers, in
         cuda_backend::zero_cuda_parameter_buffer(architecture, gradients);
         training_iteration::for_each_batch(num_tr, effective_chunk_size, [&](int start, int end, int size){
             loss_value += training_batches::train_batch_chunk_nesterov(
-                architecture, parameters, runtime, num_layers,
+                architecture, parameters, runtime,
                 chunk_gradients, target_batch,
                 dataset, train_indices,
                 start, end,
@@ -528,14 +528,14 @@ TrainingSummary train_batch_nesterov(LayerList &architecture, int num_layers, in
 
             const float gradient_scale = static_cast<float>(size) / static_cast<float>(num_tr);
             accumulate_scaled_gradients(
-                architecture, num_layers,
+                architecture,
                 gradients, chunk_gradients,
                 gradient_scale
             );
         });
 
         optimizer_step(
-            architecture, num_layers,
+            architecture,
             gradients, velocity, parameters,
             current_learning_rate, momentum
         );
@@ -544,7 +544,7 @@ TrainingSummary train_batch_nesterov(LayerList &architecture, int num_layers, in
         const double epoch_seconds = elapsed_seconds(epoch_start);
         epoch_times_seconds.push_back(epoch_seconds);
         const bool validation_improved = update_validation_tracker(
-            architecture, num_layers,
+            architecture,
             parameters, validation_runtime,
             validation_indices, dataset,
             hidden_activation, output_activation,
@@ -567,9 +567,9 @@ TrainingSummary train_batch_nesterov(LayerList &architecture, int num_layers, in
     return training_progress::make_summary(executed_epochs, last_epoch_loss, epoch_times_seconds, total_training_seconds, stopped_by_loss, stopped_by_validation, validation_tracker);
 }
 
-TrainingSummary train_sgd_nesterov(LayerList &architecture, int num_layers, int batch_size, const Decay &learning_rate_decay, int num_epochs, float target_loss, vector<int> &train_indices, const LazyDataset &dataset, const Loss &loss, const Activation &hidden_activation, const Activation &output_activation, float momentum, cuda_backend::CudaParameterBuffer &parameters, const std::vector<int> *validation_indices, const EarlyStoppingConfig *early_stopping){
+TrainingSummary train_sgd_nesterov(LayerList &architecture, int batch_size, const Decay &learning_rate_decay, int num_epochs, float target_loss, vector<int> &train_indices, const LazyDataset &dataset, const Loss &loss, const Activation &hidden_activation, const Activation &output_activation, float momentum, cuda_backend::CudaParameterBuffer &parameters, const std::vector<int> *validation_indices, const EarlyStoppingConfig *early_stopping){
     training_progress::print_training_banner();
-    validate_training_setup(architecture, num_layers, train_indices, dataset, loss, output_activation, "train_sgd_nesterov");
+    validate_training_setup(architecture, train_indices, dataset, loss, output_activation, "train_sgd_nesterov");
     int num_tr = static_cast<int>(train_indices.size());
     float last_epoch_loss = std::numeric_limits<float>::quiet_NaN();
     int executed_epochs = 0;
@@ -603,7 +603,7 @@ TrainingSummary train_sgd_nesterov(LayerList &architecture, int num_layers, int 
 
         training_iteration::for_each_batch(num_tr, effective_batch_size, [&](int start, int end, int){
             loss_value += training_batches::train_batch_chunk_nesterov(
-                architecture, parameters, runtime, num_layers,
+                architecture, parameters, runtime,
                 gradients, target_batch,
                 dataset, train_indices,
                 start, end,
@@ -612,7 +612,7 @@ TrainingSummary train_sgd_nesterov(LayerList &architecture, int num_layers, int 
             );
 
             optimizer_step(
-                architecture, num_layers,
+                architecture,
                 gradients, velocity, parameters,
                 current_learning_rate, momentum
             );
@@ -623,7 +623,7 @@ TrainingSummary train_sgd_nesterov(LayerList &architecture, int num_layers, int 
         const double epoch_seconds = elapsed_seconds(epoch_start);
         epoch_times_seconds.push_back(epoch_seconds);
         const bool validation_improved = update_validation_tracker(
-            architecture, num_layers,
+            architecture,
             parameters, validation_runtime,
             validation_indices, dataset,
             hidden_activation, output_activation,
@@ -645,9 +645,9 @@ TrainingSummary train_sgd_nesterov(LayerList &architecture, int num_layers, int 
     return training_progress::make_summary(executed_epochs, last_epoch_loss, epoch_times_seconds, total_training_seconds, stopped_by_loss, stopped_by_validation, validation_tracker);
 }
 
-TrainingSummary train_sgd_online_nesterov(LayerList &architecture, int num_layers, int steps, const Decay &learning_rate_decay, int num_epochs, float target_loss, vector<int> &train_indices, const LazyDataset &dataset, const Loss &loss, const Activation &hidden_activation, const Activation &output_activation, float momentum, cuda_backend::CudaParameterBuffer &parameters, const std::vector<int> *validation_indices, const EarlyStoppingConfig *early_stopping){
+TrainingSummary train_sgd_online_nesterov(LayerList &architecture, int steps, const Decay &learning_rate_decay, int num_epochs, float target_loss, vector<int> &train_indices, const LazyDataset &dataset, const Loss &loss, const Activation &hidden_activation, const Activation &output_activation, float momentum, cuda_backend::CudaParameterBuffer &parameters, const std::vector<int> *validation_indices, const EarlyStoppingConfig *early_stopping){
     training_progress::print_training_banner();
-    validate_training_setup(architecture, num_layers, train_indices, dataset, loss, output_activation, "train_sgd_online_nesterov");
+    validate_training_setup(architecture, train_indices, dataset, loss, output_activation, "train_sgd_online_nesterov");
     int num_tr = static_cast<int>(train_indices.size());
     const int effective_steps = validated_training_window(steps, num_tr, "train_sgd_online_nesterov");
     const int windows = static_cast<int>(std::ceil(static_cast<float>(num_tr) / effective_steps));
@@ -685,7 +685,7 @@ TrainingSummary train_sgd_online_nesterov(LayerList &architecture, int num_layer
 
             for(int t=start; t<end; t++){
                 loss_value += training_batches::train_batch_chunk_nesterov(
-                    architecture, parameters, runtime, num_layers,
+                    architecture, parameters, runtime,
                     gradients, target_batch,
                     dataset, train_indices,
                     t, t + 1,
@@ -693,7 +693,7 @@ TrainingSummary train_sgd_online_nesterov(LayerList &architecture, int num_layer
                     &velocity, momentum
                 );
                 optimizer_step(
-                    architecture, num_layers,
+                    architecture,
                     gradients, velocity, parameters,
                     current_learning_rate, momentum
                 );
@@ -716,7 +716,7 @@ TrainingSummary train_sgd_online_nesterov(LayerList &architecture, int num_layer
         epoch_times_seconds.push_back(epoch_seconds);
         executed_epochs = e + 1;
         const bool validation_improved = update_validation_tracker(
-            architecture, num_layers,
+            architecture,
             parameters, validation_runtime,
             validation_indices, dataset,
             hidden_activation, output_activation,

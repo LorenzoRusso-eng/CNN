@@ -32,5 +32,5 @@ struct ReportMetadata{
     int k_folds = 0;
 };
 
-void write_performance_report_hold_out(const std::filesystem::path &file_path, const ReportMetadata &meta, const TrainingSummary &training_summary, const TestPerformance &perf, const LayerList &architecture, int num_layers, int train_examples, int validation_examples, int test_examples);
-void write_performance_report_k_fold(const std::filesystem::path &file_path, const ReportMetadata &meta, const std::vector<TrainingSummary> &training_summaries, const std::vector<TestPerformance> &performances, const std::vector<int> &train_examples_by_fold, const std::vector<int> &validation_examples_by_fold, const LayerList &architecture, int num_layers);
+void write_performance_report_hold_out(const std::filesystem::path &file_path, const ReportMetadata &meta, const TrainingSummary &training_summary, const TestPerformance &perf, const LayerList &architecture, int train_examples, int validation_examples, int test_examples);
+void write_performance_report_k_fold(const std::filesystem::path &file_path, const ReportMetadata &meta, const std::vector<TrainingSummary> &training_summaries, const std::vector<TestPerformance> &performances, const std::vector<int> &train_examples_by_fold, const std::vector<int> &validation_examples_by_fold, const LayerList &architecture);

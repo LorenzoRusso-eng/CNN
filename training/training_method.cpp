@@ -46,12 +46,12 @@ namespace{
         return build_indices_per_class(dataset, num_classes, all_indices);
     }
 
-    TrainingSummary train(int training_type, bool use_nesterov, int window, std::vector<int> &indices, LayerList &architecture, int num_layers, const Decay &learning_rate_decay, int num_epochs, float target_loss, const LazyDataset &dataset, const Loss &loss, const Activation &hidden_activation, const Activation &output_activation, float momentum, cuda_backend::CudaParameterBuffer &parameters, const std::vector<int> *validation_indices = nullptr, const EarlyStoppingConfig *early_stopping = nullptr){
+    TrainingSummary train(int training_type, bool use_nesterov, int window, std::vector<int> &indices, LayerList &architecture, const Decay &learning_rate_decay, int num_epochs, float target_loss, const LazyDataset &dataset, const Loss &loss, const Activation &hidden_activation, const Activation &output_activation, float momentum, cuda_backend::CudaParameterBuffer &parameters, const std::vector<int> *validation_indices = nullptr, const EarlyStoppingConfig *early_stopping = nullptr){
         switch(training_type){
             case 1:
                 return use_nesterov
                     ? train_batch_nesterov(
-                        architecture, num_layers, window,
+                        architecture, window,
                         learning_rate_decay, num_epochs, target_loss,
                         indices, dataset,
                         loss, hidden_activation, output_activation,
@@ -61,7 +61,7 @@ namespace{
                         early_stopping
                     )
                     : train_batch(
-                        architecture, num_layers, window,
+                        architecture, window,
                         learning_rate_decay, num_epochs, target_loss,
                         indices, dataset,
                         loss, hidden_activation, output_activation,
@@ -73,7 +73,7 @@ namespace{
             case 2:
                 return use_nesterov
                     ? train_sgd_nesterov(
-                        architecture, num_layers, window,
+                        architecture, window,
                         learning_rate_decay, num_epochs, target_loss,
                         indices, dataset,
                         loss, hidden_activation, output_activation,
@@ -83,7 +83,7 @@ namespace{
                         early_stopping
                     )
                     : train_sgd(
-                        architecture, num_layers, window,
+                        architecture, window,
                         learning_rate_decay, num_epochs, target_loss,
                         indices, dataset,
                         loss, hidden_activation, output_activation,
@@ -95,7 +95,7 @@ namespace{
             case 3:
                 return use_nesterov
                     ? train_sgd_online_nesterov(
-                        architecture, num_layers, window,
+                        architecture, window,
                         learning_rate_decay, num_epochs, target_loss,
                         indices, dataset,
                         loss, hidden_activation, output_activation,
@@ -105,7 +105,7 @@ namespace{
                         early_stopping
                     )
                     : train_sgd_online(
-                        architecture, num_layers, window,
+                        architecture, window,
                         learning_rate_decay, num_epochs, target_loss,
                         indices, dataset,
                         loss, hidden_activation, output_activation,
@@ -221,7 +221,7 @@ std::vector<std::vector<int>> build_stratified_folds(const LazyDataset &dataset,
 
 } // namespace training_split
 
-void hold_out(string model_name, int num_examples, int training_type, bool use_nesterov, LayerList &architecture, int num_layers, const Decay &learning_rate_decay, int num_epochs, float target_loss, const LazyDataset &dataset, const Loss &loss, const Activation &hidden_activation, const Activation &output_activation, float momentum, float train_ratio, float validation_ratio, const std::vector<std::string> &class_names){
+void hold_out(string model_name, int num_examples, int training_type, bool use_nesterov, LayerList &architecture, const Decay &learning_rate_decay, int num_epochs, float target_loss, const LazyDataset &dataset, const Loss &loss, const Activation &hidden_activation, const Activation &output_activation, float momentum, float train_ratio, float validation_ratio, const std::vector<std::string> &class_names){
     (void)num_examples;
     vector<int> train_pool_indices, train_effective_indices, validation_indices, test_indices;
     TrainingSummary training_summary{};
@@ -253,7 +253,7 @@ void hold_out(string model_name, int num_examples, int training_type, bool use_n
     training_summary = train(
         training_type, use_nesterov, window,
         train_effective_indices,
-        architecture, num_layers,
+        architecture,
         learning_rate_decay, num_epochs, target_loss,
         dataset,
         loss, hidden_activation, output_activation,
@@ -262,7 +262,7 @@ void hold_out(string model_name, int num_examples, int training_type, bool use_n
         &validation_indices,
         &early_stopping
     );
-    performance = run_test(architecture, num_layers, parameters, test_indices, dataset, hidden_activation, output_activation);
+    performance = run_test(architecture, parameters, test_indices, dataset, hidden_activation, output_activation);
     cuda_backend::sync_cuda_parameters_to_architecture(architecture, parameters);
 
     ReportMetadata report_meta = training_metadata::build_report_metadata(
@@ -279,7 +279,7 @@ void hold_out(string model_name, int num_examples, int training_type, bool use_n
     write_performance_report_hold_out(
         performance_report_path,
         report_meta, training_summary, performance,
-        architecture, num_layers,
+        architecture,
         static_cast<int>(train_effective_indices.size()),
         static_cast<int>(validation_indices.size()),
         static_cast<int>(test_indices.size())
@@ -287,10 +287,10 @@ void hold_out(string model_name, int num_examples, int training_type, bool use_n
     cout << "Report performance salvato in: " << performance_report_path << endl;
 
     const fs::path model_snapshot_path = "trained_model_" + model_name + "_snapshot.txt";
-    save_model_snapshot(architecture, num_layers, model_snapshot_path, class_names, hidden_activation, output_activation);
+    save_model_snapshot(architecture, model_snapshot_path, class_names, hidden_activation, output_activation);
     std::cout << "Struttura e pesi salvati in: " << model_snapshot_path << std::endl;
 }
-void k_fold(string model_name, int k_folds, int num_examples, int training_type, bool use_nesterov, LayerList &architecture, int num_layers, const Decay &learning_rate_decay, int num_epochs, float target_loss, const LazyDataset &dataset, const Loss &loss, const Activation &hidden_activation, const Activation &output_activation, float momentum, float validation_ratio, const std::vector<std::string> &class_names){
+void k_fold(string model_name, int k_folds, int num_examples, int training_type, bool use_nesterov, LayerList &architecture, const Decay &learning_rate_decay, int num_epochs, float target_loss, const LazyDataset &dataset, const Loss &loss, const Activation &hidden_activation, const Activation &output_activation, float momentum, float validation_ratio, const std::vector<std::string> &class_names){
     (void)class_names;
     vector<int> train_pool_indices;
     LayerList architecture_copy = architecture;
@@ -340,7 +340,7 @@ void k_fold(string model_name, int k_folds, int num_examples, int training_type,
         training_summary.push_back(train(
             training_type, use_nesterov, window,
             train_effective_by_fold[k],
-            architecture, num_layers,
+            architecture,
             learning_rate_decay, num_epochs, target_loss,
             dataset,
             loss, hidden_activation, output_activation,
@@ -350,7 +350,7 @@ void k_fold(string model_name, int k_folds, int num_examples, int training_type,
             &early_stopping
         ));
         cout << "Fine dell'apprendimento per il fold numero " << k+1 << ", inizio del test" << endl;
-        performance.push_back(run_test(architecture, num_layers, parameters, test_by_fold[k], dataset, hidden_activation, output_activation));
+        performance.push_back(run_test(architecture, parameters, test_by_fold[k], dataset, hidden_activation, output_activation));
     }
 
     ReportMetadata report_meta = training_metadata::build_report_metadata(
@@ -370,12 +370,12 @@ void k_fold(string model_name, int k_folds, int num_examples, int training_type,
         validation_examples_by_fold[k] = static_cast<int>(validation_by_fold[k].size());
     }
     const fs::path performance_report_path = "network_performance_report_" + model_name + ".md";
-    write_performance_report_k_fold(performance_report_path, report_meta, training_summary, performance, train_examples_by_fold, validation_examples_by_fold, architecture_copy, num_layers);
+    write_performance_report_k_fold(performance_report_path, report_meta, training_summary, performance, train_examples_by_fold, validation_examples_by_fold, architecture_copy);
     cout << "Report performance salvato in: " << performance_report_path << endl;
 
 }
 
-void full_training(std::string model_name, int num_examples, int training_type, bool use_nesterov, LayerList &architecture, int num_layers, const Decay &learning_rate_decay, int num_epochs, float target_loss, const LazyDataset &dataset, const Loss &loss, const Activation &hidden_activation, const Activation &output_activation, float momentum, const std::vector<std::string> &class_names){
+void full_training(std::string model_name, int num_examples, int training_type, bool use_nesterov, LayerList &architecture, const Decay &learning_rate_decay, int num_epochs, float target_loss, const LazyDataset &dataset, const Loss &loss, const Activation &hidden_activation, const Activation &output_activation, float momentum, const std::vector<std::string> &class_names){
     vector<int> train_indices(num_examples);
     iota(train_indices.begin(), train_indices.end(), 0);
     int window = choose_training_window(training_type, num_examples);
@@ -385,7 +385,7 @@ void full_training(std::string model_name, int num_examples, int training_type, 
     TrainingSummary training_summary = train(
         training_type, use_nesterov, window,
         train_indices,
-        architecture, num_layers,
+        architecture,
         learning_rate_decay, num_epochs, target_loss,
         dataset,
         loss, hidden_activation, output_activation,
@@ -397,7 +397,7 @@ void full_training(std::string model_name, int num_examples, int training_type, 
     cuda_backend::sync_cuda_parameters_to_architecture(architecture, parameters);
 
     const fs::path model_snapshot_path = "trained_model_" + model_name + "_snapshot.txt";
-    save_model_snapshot(architecture, num_layers, model_snapshot_path, class_names, hidden_activation, output_activation);
+    save_model_snapshot(architecture, model_snapshot_path, class_names, hidden_activation, output_activation);
     std::cout << "Struttura e pesi salvati in: " << model_snapshot_path << std::endl;
 
 }

@@ -12,11 +12,36 @@ constexpr long double Pi = 3.14159265358979323846264338327950288L;
 constexpr float PI_F = static_cast<float>(Pi);
 
 // Strutture tensoriali flat
+struct Shape3D {
+    int height = 0;
+    int width = 0;
+    int channels = 0;
+
+    Shape3D() = default;
+    Shape3D(int h, int w, int c) : height(h), width(w), channels(c) {}
+
+    int &operator[](std::size_t idx){
+        switch(idx){
+            case 0: return height;
+            case 1: return width;
+            default: return channels;
+        }
+    }
+
+    const int &operator[](std::size_t idx) const{
+        switch(idx){
+            case 0: return height;
+            case 1: return width;
+            default: return channels;
+        }
+    }
+};
+
 struct Tensor{
     int height = 0;
     int width = 0;
     int channels = 0;
-    int flat_size = 0;
+    std::size_t flat_size = 0;
     std::vector<float> data;
 
     Tensor() = default;
@@ -25,9 +50,15 @@ struct Tensor{
         : height(height_in),
           width(width_in),
           channels(channels_in),
-          flat_size(height_in * width_in * channels_in),
+          flat_size(
+              static_cast<std::size_t>(height_in) *
+              static_cast<std::size_t>(width_in) *
+              static_cast<std::size_t>(channels_in)
+          ),
           data(
-              static_cast<std::size_t>(height_in * width_in * channels_in),
+              static_cast<std::size_t>(height_in) *
+              static_cast<std::size_t>(width_in) *
+              static_cast<std::size_t>(channels_in),
               value
           ) {}
 
@@ -35,8 +66,10 @@ struct Tensor{
         height = height_in;
         width = width_in;
         channels = channels_in;
-        flat_size = height_in * width_in * channels_in;
-        data.assign(static_cast<std::size_t>(flat_size), value);
+        flat_size = static_cast<std::size_t>(height_in) *
+                    static_cast<std::size_t>(width_in) *
+                    static_cast<std::size_t>(channels_in);
+        data.assign(flat_size, value);
     }
 
     void clear(){
@@ -57,7 +90,7 @@ struct DatasetSample{
 };
 
 struct LazyDataset{
-    int input_shape[3] = {0, 0, 0};
+    Shape3D input_shape{};
     int num_classes = 0;
     std::vector<std::string> class_names;
     std::vector<DatasetSample> samples;
@@ -72,7 +105,7 @@ struct BatchTensor{
     int height = 0;
     int width = 0;
     int channels = 0;
-    int flat_size = 0;
+    std::size_t flat_size = 0;
     std::vector<float> data;
 
     BatchTensor() = default;
@@ -82,10 +115,16 @@ struct BatchTensor{
           height(height_in),
           width(width_in),
           channels(channels_in),
-          flat_size(height_in * width_in * channels_in),
+          flat_size(
+              static_cast<std::size_t>(height_in) *
+              static_cast<std::size_t>(width_in) *
+              static_cast<std::size_t>(channels_in)
+          ),
           data(
               static_cast<std::size_t>(batch_size_in) *
-              static_cast<std::size_t>(height_in * width_in * channels_in),
+              static_cast<std::size_t>(height_in) *
+              static_cast<std::size_t>(width_in) *
+              static_cast<std::size_t>(channels_in),
               value
           ) {}
 
@@ -94,8 +133,10 @@ struct BatchTensor{
         height = height_in;
         width = width_in;
         channels = channels_in;
-        flat_size = height_in * width_in * channels_in;
-        data.assign(static_cast<std::size_t>(batch_size_in) * static_cast<std::size_t>(flat_size), value);
+        flat_size = static_cast<std::size_t>(height_in) *
+                    static_cast<std::size_t>(width_in) *
+                    static_cast<std::size_t>(channels_in);
+        data.assign(static_cast<std::size_t>(batch_size_in) * flat_size, value);
     }
 
     void clear(){

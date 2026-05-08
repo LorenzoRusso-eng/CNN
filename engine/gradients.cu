@@ -24,9 +24,9 @@ namespace {
 void backprop_dense_layer_batch(
     CudaBatchLayerRuntime &current_runtime,
     const CudaBatchLayerRuntime &previous_runtime,
-    const Layer *next, const CudaBatchLayerRuntime *next_runtime, const CudaParameterBuffer &cuda_params,
+    const Layer *next, CudaBatchLayerRuntime *next_runtime, const CudaParameterBuffer &cuda_params,
     CudaParameterBuffer &gradients, 
-    const bool is_output, int layer_index, int output_size, float learning_rate,
+    const bool is_output, int layer_index,
     const Loss &loss, const Activation &act, const cuda_backend::CudaBatchTensor<float> &desired_output, 
     const CudaParameterBuffer *velocity, float momentum
 ){
@@ -52,7 +52,7 @@ void backprop_dense_layer_batch(
 
     if(is_output){
         compute_delta_output <<< GridDim_delta, 256 >>>(
-            desired, output, a,
+            output, desired, a,
             total_size, batch_size,
             act.kind, act.alpha, act.beta,
             loss.kind, loss.reduction(), loss.beta,
@@ -114,9 +114,9 @@ void backprop_dense_layer_batch(
 void backprop_conv_layer_batch(
     const Layer &current, CudaBatchLayerRuntime &current_runtime,
     const CudaBatchLayerRuntime &previous_runtime,
-    const Layer *next, const CudaBatchLayerRuntime *next_runtime, const CudaParameterBuffer &cuda_params,
+    const Layer *next, CudaBatchLayerRuntime *next_runtime, const CudaParameterBuffer &cuda_params,
     CudaParameterBuffer &gradients, 
-    const bool is_output, int layer_index, int output_size, float learning_rate,
+    const bool is_output, int layer_index,
     const Loss &loss, const Activation &act, const cuda_backend::CudaBatchTensor<float> &desired_output, 
     const CudaParameterBuffer *velocity, float momentum
 ){
@@ -135,9 +135,9 @@ void backprop_conv_layer_batch(
     const int out_patches = out_height * out_width;
     const int total_out_patches = out_patches * batch_size;
 
-    const int kernel_height = current.kernel_dim[0];
-    const int kernel_width = current.kernel_dim[1];
-    const int kernel_channels = current.kernel_dim[2];
+    const int kernel_height = current.kernel_shape[0];
+    const int kernel_width = current.kernel_shape[1];
+    const int kernel_channels = current.kernel_shape[2];
     const int patch_size = kernel_height * kernel_width * kernel_channels;
 
     const int padding_height = current.padding[0];
@@ -160,7 +160,7 @@ void backprop_conv_layer_batch(
 
     if(is_output){
         compute_delta_output <<< GridDim_delta, 256 >>>(
-            desired, output, a,
+            output, desired, a,
             total_size, batch_size,
             act.kind, act.alpha, act.beta,
             loss.kind, loss.reduction(), loss.beta,
@@ -240,23 +240,21 @@ void backprop_conv_layer_batch(
 } // namespace
 
 void backprop_batch(
-    const LayerList &architecture, cuda_backend::CudaBatchRuntimeList &runtime, int num_layers, 
+    const LayerList &architecture, cuda_backend::CudaBatchRuntimeList &runtime,
     CudaParameterBuffer &gradients, const CudaParameterBuffer &cuda_params,
     const Loss &loss, const cuda_backend::CudaBatchTensor<float> &desired_output,
     const Activation &hidden_activation, const Activation &output_activation,
-    const CudaParameterBuffer *velocity, float momentum,
-    float learning_rate
+    const CudaParameterBuffer *velocity, float momentum
 ){
-    const int output_size = architecture[num_layers - 1].flat_output_size();
+    const int num_layers = static_cast<int>(architecture.size());
 
     for(int l = num_layers - 1; l > 0; l--){
         const Layer &current = architecture[l];
-        const Layer &previous = architecture[l - 1];
         const Layer *next = (l < num_layers - 1) ? &architecture[l + 1] : nullptr;
 
         CudaBatchLayerRuntime &current_runtime = runtime[l];
         const CudaBatchLayerRuntime &previous_runtime = runtime[l - 1];
-        const CudaBatchLayerRuntime *next_runtime = (l < num_layers - 1) ? &runtime[l + 1] : nullptr;
+        CudaBatchLayerRuntime *next_runtime = (l < num_layers - 1) ? &runtime[l + 1] : nullptr;
 
         const bool is_output = (l == num_layers - 1);
         const bool next_is_softmax = (next != nullptr) && (next->type == Layer_type::Softmax);
@@ -269,7 +267,7 @@ void backprop_batch(
                     previous_runtime,
                     next, next_runtime, cuda_params,
                     gradients,
-                    is_output, l, output_size, learning_rate,
+                    is_output, l,
                     loss, act, desired_output, 
                     velocity, momentum
                 );
@@ -280,7 +278,7 @@ void backprop_batch(
                     previous_runtime,
                     next, next_runtime, cuda_params,
                     gradients,
-                    is_output, l, output_size, learning_rate,
+                    is_output, l,
                     loss, act, desired_output, 
                     velocity, momentum
                 );

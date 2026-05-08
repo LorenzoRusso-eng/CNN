@@ -20,7 +20,7 @@ __global__ void apply_nesterov_bias_activation(
 );
 
 __global__ void compute_delta_output(
-    const float *desired, const float *output, const float *a,
+    const float *output, const float *desired, const float *a,
     int total_size, int batch_size, ActivationKind actkind, float activation_alpha, float activation_beta,
     LossKind losskind, Reduction red, float loss_beta,
     float *delta

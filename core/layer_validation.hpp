@@ -25,11 +25,11 @@ inline void validate_conv_layout(const Layer &current, const Layer &previous, co
     validate_positive_dims(current.dim_layer, context);
     validate_positive_dims(previous.dim_layer, context + " previous");
     require_condition(dims_match(current.input_dim, previous.dim_layer), context + ": input_dim non coincide con il layer precedente");
-    require_condition(current.kernel_dim[2] == previous.dim_layer[2], context + ": il numero di canali del kernel deve coincidere con i canali in input");
+    require_condition(current.kernel_shape[2] == previous.dim_layer[2], context + ": il numero di canali del kernel deve coincidere con i canali in input");
 
     const int expected_h = compute_spatial_output_dim(
         previous.dim_layer[0],
-        current.kernel_dim[0],
+        current.kernel_shape[0],
         current.stride[0],
         current.padding[0],
         context,
@@ -37,7 +37,7 @@ inline void validate_conv_layout(const Layer &current, const Layer &previous, co
     );
     const int expected_w = compute_spatial_output_dim(
         previous.dim_layer[1],
-        current.kernel_dim[1],
+        current.kernel_shape[1],
         current.stride[1],
         current.padding[1],
         context,
@@ -46,7 +46,7 @@ inline void validate_conv_layout(const Layer &current, const Layer &previous, co
 
     require_condition(current.dim_layer[0] == expected_h, context + ": altezza output incoerente");
     require_condition(current.dim_layer[1] == expected_w, context + ": larghezza output incoerente");
-    require_condition(static_cast<int>(current.conv_params.filters.size()) == current.conv_filter_count(), context + ": numero pesi filtri incoerente");
+    require_condition(current.conv_params.conv_weights.size() == current.conv_filter_count(), context + ": numero pesi filtri incoerente");
     require_condition(static_cast<int>(current.conv_params.bias.size()) == current.dim_layer[2], context + ": numero bias filtri incoerente");
 }
 
@@ -59,7 +59,7 @@ inline void validate_pooling_layout(const Layer &current, const Layer &previous,
 
     const int expected_h = compute_spatial_output_dim(
         previous.dim_layer[0],
-        current.kernel_dim[0],
+        current.pool_window_shape[0],
         current.stride[0],
         current.padding[0],
         context,
@@ -67,7 +67,7 @@ inline void validate_pooling_layout(const Layer &current, const Layer &previous,
     );
     const int expected_w = compute_spatial_output_dim(
         previous.dim_layer[1],
-        current.kernel_dim[1],
+        current.pool_window_shape[1],
         current.stride[1],
         current.padding[1],
         context,
@@ -120,9 +120,9 @@ inline void validate_layer_connection(const Layer &current, const Layer &previou
     }
 }
 
-inline void validate_architecture(const LayerList &architecture, int num_layers, const std::string &context){
+inline void validate_architecture(const LayerList &architecture, const std::string &context){
+    const int num_layers = static_cast<int>(architecture.size());
     require_condition(num_layers > 0, context + ": num_layers deve essere positivo");
-    require_condition(static_cast<int>(architecture.size()) == num_layers, context + ": num_layers non coincide con la dimensione dell'architettura");
     require_condition(architecture[0].type == Layer_type::Input, context + ": il primo layer deve essere Input");
     validate_positive_dims(architecture[0].dim_layer, context + " input");
 
@@ -135,7 +135,9 @@ inline void validate_architecture(const LayerList &architecture, int num_layers,
     }
 }
 
-inline void validate_dataset_indices_io_shapes(const LayerList &architecture, int num_layers, const LazyDataset &dataset, const std::vector<int> &indices, const std::string &context){
+inline void validate_dataset_indices_io_shapes(const LayerList &architecture, const LazyDataset &dataset, const std::vector<int> &indices, const std::string &context){
+    validate_architecture(architecture, context);
+    const int num_layers = static_cast<int>(architecture.size());
     require_condition(dataset.size() > 0, context + ": dataset vuoto");
     require_condition(dataset.num_classes > 0, context + ": numero classi dataset non valido");
     require_condition(

@@ -12,7 +12,7 @@ namespace training_batches {
 
 float train_batch_chunk(
     const LayerList &architecture, const cuda_backend::CudaParameterBuffer &cuda_params,
-    cuda_backend::CudaBatchRuntimeList &runtime, int num_layers,
+    cuda_backend::CudaBatchRuntimeList &runtime,
     cuda_backend::CudaParameterBuffer &batch_gradients,
     cuda_backend::CudaBatchTensor<float> &target_batch, const LazyDataset &dataset,
     const std::vector<int> &indices, int start, int end,
@@ -21,7 +21,7 @@ float train_batch_chunk(
 
 float train_batch_chunk_nesterov(
     const LayerList &architecture, const cuda_backend::CudaParameterBuffer &cuda_params,
-    cuda_backend::CudaBatchRuntimeList &runtime, int num_layers,
+    cuda_backend::CudaBatchRuntimeList &runtime,
     cuda_backend::CudaParameterBuffer &batch_gradients,
     cuda_backend::CudaBatchTensor<float> &target_batch,
     const LazyDataset &dataset, const std::vector<int> &indices, int start, int end,

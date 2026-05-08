@@ -17,6 +17,7 @@
 #include <cctype>
 #include <iostream>
 #include <limits>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -32,8 +33,7 @@ bool is_blank_string(const std::string &value){
 void run_training_mode(){
     LayerList architecture;
 
-    int num_layers = 0;
-    int dim_input[3] = {0, 0, 0};
+    Shape3D dim_input{};
     int dim_output = 1;
 
     int num_examples = 0;
@@ -67,12 +67,13 @@ void run_training_mode(){
     dim_output = dataset.num_classes;
     num_examples = dataset.size();
 
-    create_architecture(num_layers, dim_input, dim_output, architecture);
+    create_architecture(dim_input, dim_output, architecture);
+    const int num_layers = static_cast<int>(architecture.size());
 
     const bool final_is_softmax = architecture[num_layers - 1].type == Layer_type::Softmax;
     const Activation &hidden_activation = choose_hidden_activation();
     const Activation &output_activation = choose_output_activation(final_is_softmax);
-    const Loss &loss = choose_loss_function(final_is_softmax);
+    const Loss loss = choose_loss_function(final_is_softmax);
 
     learning_rate = read_bounded_float(
         "Scegliere il learning rate iniziale per il training (maggiore di 0)",
@@ -95,7 +96,7 @@ void run_training_mode(){
         "Inserire un intero maggiore o uguale a 1."
     );
 
-    const Decay &learning_rate_decay = choose_learning_rate_decay(learning_rate, num_epochs);
+    std::unique_ptr<Decay> learning_rate_decay = choose_learning_rate_decay(learning_rate, num_epochs);
     
     training_type = read_bounded_int("Scegliere il tipo di training: 1=Batch 2=Mini-batch SGD 3=Online SGD", 1, 3);
 
@@ -126,8 +127,8 @@ void run_training_mode(){
         hold_out(
             model_name, num_examples,
             training_type, use_nesterov,
-            architecture, num_layers,
-            learning_rate_decay, num_epochs, target_loss,
+            architecture,
+            *learning_rate_decay, num_epochs, target_loss,
             dataset,
             loss, hidden_activation, output_activation,
             momentum, hold_out_ratio, validation_ratio,
@@ -150,8 +151,8 @@ void run_training_mode(){
         k_fold(
             model_name, k_folds, num_examples,
             training_type, use_nesterov,
-            architecture, num_layers,
-            learning_rate_decay, num_epochs, target_loss,
+            architecture,
+            *learning_rate_decay, num_epochs, target_loss,
             dataset,
             loss, hidden_activation, output_activation,
             momentum,
@@ -163,8 +164,8 @@ void run_training_mode(){
         full_training(
             model_name, num_examples,
             training_type, use_nesterov,
-            architecture, num_layers,
-            learning_rate_decay, num_epochs, target_loss,
+            architecture,
+            *learning_rate_decay, num_epochs, target_loss,
             dataset,
             loss, hidden_activation, output_activation,
             momentum,
@@ -189,7 +190,7 @@ void run_inference_mode(){
     std::string output_activation_name;
     load_model_snapshot(snapshot_path_str, architecture, class_names, hidden_activation_name, output_activation_name);
     const int num_layers = static_cast<int>(architecture.size());
-    validate_architecture(architecture, num_layers, "Inference");
+    validate_architecture(architecture, "Inference");
     const int input_h = architecture[0].dim_layer[0];
     const int input_w = architecture[0].dim_layer[1];
     const int input_c = architecture[0].dim_layer[2];
@@ -225,7 +226,7 @@ void run_inference_mode(){
 
         cuda_backend::init_cuda_forward_batch_runtime_buffers(architecture, runtime, 1);
         feed_input_tensor(image, architecture[0], runtime[0]);
-        forwardprop_batch(architecture, runtime, num_layers, parameters, hidden_activation, output_activation);
+        forwardprop_batch(architecture, runtime, parameters, hidden_activation, output_activation);
 
         int obs = read_bounded_int("Osservare l'output di un layer? (0 = no, 1 = si)", 0, 1);
 
@@ -291,17 +292,17 @@ void run_inference_mode(){
 
         }
 
-        const int flat_size = architecture[num_layers - 1].flat_output_size();
-        std::vector<float> output_values(static_cast<std::size_t>(flat_size));
+        const std::size_t flat_size = architecture[num_layers - 1].flat_output_size();
+        std::vector<float> output_values(flat_size);
         runtime[num_layers - 1].y.copy_to_host(output_values.data(), output_values.size());
 
         int predicted_class = 0;
         float best_value = output_values[0];
-        for(int c = 1; c < flat_size; c++){
+        for(std::size_t c = 1; c < flat_size; c++){
             const float value = output_values[static_cast<std::size_t>(c)];
             if(value > best_value){
                 best_value = value;
-                predicted_class = c;
+                predicted_class = static_cast<int>(c);
             }
         }
         const float confidence = output_values[static_cast<std::size_t>(predicted_class)];
@@ -309,7 +310,7 @@ void run_inference_mode(){
         std::cout << "Classe predetta (indice): " << predicted_class << std::endl;
         std::cout << "Confidenza: " << confidence << std::endl;
 
-        if(!class_names.empty() && static_cast<int>(class_names.size()) == flat_size){
+        if(!class_names.empty() && class_names.size() == flat_size){
             std::cout << "Classe predetta (nome): " << class_names[predicted_class] << std::endl;
         }
 
