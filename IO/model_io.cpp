@@ -148,9 +148,9 @@ namespace
                     throw std::invalid_argument("Riga f non valida nello snapshot");
                 }
                 if (oc < 0 || oc >= layer.dim_layer[2] ||
-                    kh < 0 || kh >= layer.kernel_dim[0] ||
-                    kw < 0 || kw >= layer.kernel_dim[1] ||
-                    ic < 0 || ic >= layer.kernel_dim[2])
+                    kh < 0 || kh >= layer.kernel_shape[0] ||
+                    kw < 0 || kw >= layer.kernel_shape[1] ||
+                    ic < 0 || ic >= layer.kernel_shape[2])
                 {
                     throw std::invalid_argument("Riga f fuori range nello snapshot");
                 }
@@ -201,11 +201,11 @@ namespace
         for (int oc = 0; oc < layer.dim_layer[2]; oc++)
         {
             out << "filter_bias " << oc << " " << layer.conv_params.bias[oc] << std::endl;
-            for (int kh = 0; kh < layer.kernel_dim[0]; kh++)
+            for (int kh = 0; kh < layer.kernel_shape[0]; kh++)
             {
-                for (int kw = 0; kw < layer.kernel_dim[1]; kw++)
+                for (int kw = 0; kw < layer.kernel_shape[1]; kw++)
                 {
-                    for (int ic = 0; ic < layer.kernel_dim[2]; ic++)
+                    for (int ic = 0; ic < layer.kernel_shape[2]; ic++)
                     {
                         out << "f " << oc << " " << kh << " " << kw << " " << ic << " " << layer.conv_filter_at(oc, kh, kw, ic) << std::endl;
                     }
@@ -275,7 +275,8 @@ namespace
         }
     }
 
-    void write_model_snapshot_contents(std::ostream &out, const LayerList &architecture, int num_layers, const std::vector<std::string> &class_names, const Activation &hidden_activation, const Activation &output_activation){
+    void write_model_snapshot_contents(std::ostream &out, const LayerList &architecture, const std::vector<std::string> &class_names, const Activation &hidden_activation, const Activation &output_activation){
+        const int num_layers = static_cast<int>(architecture.size());
         out << "MODEL_SNAPSHOT" << std::endl;
         out << "class_names " << class_names.size() << std::endl;
         for(size_t c = 0; c < class_names.size(); c++){
@@ -287,10 +288,11 @@ namespace
 
         for(int l = 0; l < num_layers; l++){
             const Layer &layer = architecture[l];
+            const Shape3D &serialized_kernel = (layer.type == Layer_type::Pooling) ? layer.pool_window_shape : layer.kernel_shape;
             out << "layer " << l << " type " << layer_text::layer_type_to_string(layer.type) << std::endl;
             out << "dim " << layer.dim_layer[0] << " " << layer.dim_layer[1] << " " << layer.dim_layer[2] << std::endl;
             out << "input_dim " << layer.input_dim[0] << " " << layer.input_dim[1] << " " << layer.input_dim[2] << std::endl;
-            out << "kernel_dim " << layer.kernel_dim[0] << " " << layer.kernel_dim[1] << " " << layer.kernel_dim[2] << std::endl;
+            out << "kernel_shape " << serialized_kernel[0] << " " << serialized_kernel[1] << " " << serialized_kernel[2] << std::endl;
             out << "stride " << layer.stride[0] << " " << layer.stride[1] << std::endl;
             out << "padding " << layer.padding[0] << " " << layer.padding[1] << std::endl;
             out << "pooling_type " << layer_text::pooling_type_to_string(layer.pooling_type) << std::endl;
@@ -386,9 +388,9 @@ void load_model_snapshot(const fs::path &snapshot_path, LayerList &architecture,
         int input_dim[3] = {0, 0, 0};
         in >> input_dim[0] >> input_dim[1] >> input_dim[2];
 
-        expect_token(in, "kernel_dim");
-        int kernel_dim[3] = {0, 0, 0};
-        in >> kernel_dim[0] >> kernel_dim[1] >> kernel_dim[2];
+        expect_token(in, "kernel_shape");
+        int kernel_shape[3] = {0, 0, 0};
+        in >> kernel_shape[0] >> kernel_shape[1] >> kernel_shape[2];
 
         expect_token(in, "stride");
         int stride[2] = {1, 1};
@@ -411,12 +413,12 @@ void load_model_snapshot(const fs::path &snapshot_path, LayerList &architecture,
             layer.init_dense(dim, input_dim);
             break;
         case Layer_type::Conv:
-            layer.init_conv(dim, input_dim, kernel_dim, stride, padding);
+            layer.init_conv(dim, input_dim, kernel_shape, stride, padding);
             break;
         case Layer_type::Pooling:
         {
             const Pooling_type pool_type = layer_text::parse_pooling_type(pooling_type_str);
-            layer.init_pooling(dim, input_dim, kernel_dim, stride, padding, pool_type);
+            layer.init_pooling(dim, input_dim, kernel_shape, stride, padding, pool_type);
             break;
         }
         case Layer_type::Flatten:
@@ -440,10 +442,10 @@ void load_model_snapshot(const fs::path &snapshot_path, LayerList &architecture,
     }
 }
 
-void save_model_snapshot(const LayerList &architecture, int num_layers, const fs::path &file_path, const std::vector<std::string> &class_names, const Activation &hidden_activation, const Activation &output_activation)
+void save_model_snapshot(const LayerList &architecture, const fs::path &file_path, const std::vector<std::string> &class_names, const Activation &hidden_activation, const Activation &output_activation)
 {
     write_snapshot_atomically(file_path, [&](std::ostream &out){
-        write_model_snapshot_contents(out, architecture, num_layers, class_names, hidden_activation, output_activation);
+        write_model_snapshot_contents(out, architecture, class_names, hidden_activation, output_activation);
     });
 }
 

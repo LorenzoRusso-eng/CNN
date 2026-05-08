@@ -177,7 +177,7 @@ void CudaBatchTensor<T>::copy_to_host(T *dst, std::size_t count) const{
 }
 
 template <typename T>
-void CudaBatchTensor<T>::alias_from(const CudaBatchTensor<T> &src, int batch_size, int h, int w, int ch){
+void CudaBatchTensor<T>::alias_from(CudaBatchTensor<T> &src, int batch_size, int h, int w, int ch){
     require_condition(batch_size >= 0 && h >= 0 && w >= 0 && ch >= 0,
                       "CudaBatchTensor::alias_from: dimensioni negative");
     const std::size_t count = static_cast<std::size_t>(batch_size) *
@@ -186,7 +186,7 @@ void CudaBatchTensor<T>::alias_from(const CudaBatchTensor<T> &src, int batch_siz
                               static_cast<std::size_t>(ch);
     require_condition(count == src.size(), "CudaBatchTensor::alias_from: shape alias incompatibile");
     release();
-    ptr_ = const_cast<T *>(src.data());
+    ptr_ = src.data();
     size_ = count;
     capacity_ = 0;
     batch_size_ = batch_size;
@@ -278,7 +278,7 @@ void init_cuda_batch_runtime_buffers(const LayerList &architecture, CudaBatchRun
         CudaBatchLayerRuntime &state = runtime[layer_index];
         state.clear();
         const Layer &layer = architecture[layer_index];
-        const int flat_size = layer.flat_output_size();
+        const std::size_t flat_size = layer.flat_output_size();
         const bool uses_activation = layer.type == Layer_type::Dense || layer.type == Layer_type::Conv;
         const bool next_cost_can_alias =
             layer_index + 1 < architecture.size() &&
@@ -310,7 +310,7 @@ void init_cuda_batch_runtime_buffers(const LayerList &architecture, CudaBatchRun
             state.a.resize(batch_size, layer.dim_layer[0], layer.dim_layer[1], layer.dim_layer[2]);
             int ones_count = batch_size;
             if(layer.type == Layer_type::Conv){
-                const int patch_size = layer.kernel_dim[0] * layer.kernel_dim[1] * layer.kernel_dim[2];
+                const int patch_size = layer.kernel_shape[0] * layer.kernel_shape[1] * layer.kernel_shape[2];
                 const int patches_per_sample = layer.dim_layer[0] * layer.dim_layer[1];
                 state.conv_im2col.resize(batch_size, patch_size, layer.dim_layer[0] * layer.dim_layer[1], 1);
                 ones_count = batch_size * patches_per_sample;
@@ -334,7 +334,7 @@ void init_cuda_forward_batch_runtime_buffers(const LayerList &architecture, Cuda
         CudaBatchLayerRuntime &state = runtime[layer_index];
         state.clear();
         const Layer &layer = architecture[layer_index];
-        const int flat_size = layer.flat_output_size();
+        const std::size_t flat_size = layer.flat_output_size();
 
         state.batch_size = batch_size;
         state.flat_size = flat_size;
@@ -347,7 +347,7 @@ void init_cuda_forward_batch_runtime_buffers(const LayerList &architecture, Cuda
         }
 
         if(layer.type == Layer_type::Conv){
-            const int patch_size = layer.kernel_dim[0] * layer.kernel_dim[1] * layer.kernel_dim[2];
+            const int patch_size = layer.kernel_shape[0] * layer.kernel_shape[1] * layer.kernel_shape[2];
             state.conv_im2col.resize(batch_size, patch_size, layer.dim_layer[0] * layer.dim_layer[1], 1);
         }
 
@@ -375,7 +375,7 @@ void init_cuda_parameter_buffer(const LayerList &architecture, CudaParameterBuff
         }
 
         if(layer.type == Layer_type::Conv){
-            buffer.conv_weights[l].resize(1,layer.dim_layer[2], layer.kernel_dim[0] * layer.kernel_dim[1] * layer.kernel_dim[2], 1);
+            buffer.conv_weights[l].resize(1,layer.dim_layer[2], layer.kernel_shape[0] * layer.kernel_shape[1] * layer.kernel_shape[2], 1);
             buffer.conv_biases[l].resize(1, layer.dim_layer[2], 1, 1);
         } else {
             buffer.conv_weights[l].clear();
@@ -453,10 +453,10 @@ void sync_cuda_parameters_from_cpu(const LayerList &architecture, CudaParameterB
             auto &weights = buffer.conv_weights[layer_index];
             auto &biases = buffer.conv_biases[layer_index];
             weights.copy_from_host(
-                layer.conv_params.filters.data(),
+                layer.conv_params.conv_weights.data(),
                 1,
                 layer.dim_layer[2],
-                layer.kernel_dim[0] * layer.kernel_dim[1] * layer.kernel_dim[2],
+                layer.kernel_shape[0] * layer.kernel_shape[1] * layer.kernel_shape[2],
                 1
             );
             biases.copy_from_host(
@@ -495,7 +495,7 @@ void sync_cuda_parameters_to_cpu(const LayerList &architecture, const CudaParame
         }
 
         if(layer.type == Layer_type::Conv){
-            host_buffer.conv_weights[layer_index].resize(layer.conv_params.filters.size());
+            host_buffer.conv_weights[layer_index].resize(layer.conv_params.conv_weights.size());
             host_buffer.conv_biases[layer_index].resize(layer.conv_params.bias.size());
             buffer.conv_weights[layer_index].copy_to_host(
                 host_buffer.conv_weights[layer_index].data(),
@@ -522,7 +522,7 @@ void sync_cuda_parameters_to_architecture(LayerList &architecture, const CudaPar
             layer.dense_params.weights = std::move(host_buffer.dense_weights[layer_index]);
             layer.dense_params.bias = std::move(host_buffer.dense_biases[layer_index]);
         } else if(layer.type == Layer_type::Conv){
-            layer.conv_params.filters = std::move(host_buffer.conv_weights[layer_index]);
+            layer.conv_params.conv_weights = std::move(host_buffer.conv_weights[layer_index]);
             layer.conv_params.bias = std::move(host_buffer.conv_biases[layer_index]);
         }
     }

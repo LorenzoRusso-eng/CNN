@@ -175,11 +175,3 @@ float Loss_fun(
     const Loss &loss,
     const cuda_backend::CudaBatchTensor<float> &desired_output
 );
-
-extern Loss simple_loss;
-extern Loss l1_loss;
-extern Loss l2_loss;
-extern Loss smooth_l1_loss;
-extern Loss huber_loss;
-extern Loss cross_entropy;
-extern Loss ll_loss;

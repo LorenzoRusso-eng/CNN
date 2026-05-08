@@ -34,11 +34,11 @@ struct DenseParameters{
 };
 
 struct ConvParameters{
-    std::vector<float> filters;
+    std::vector<float> conv_weights;
     std::vector<float> bias;
 
     void clear(){
-        filters.clear();
+        conv_weights.clear();
         bias.clear();
     }
 };
@@ -62,7 +62,7 @@ struct LayerRuntime{
         reduction_ones.clear();
     }
 
-    void resize(const int dim[3], bool allocate_activation = true){
+    void resize(const Shape3D &dim, bool allocate_activation = true){
         if(allocate_activation){
             a = Tensor(dim[0], dim[1], dim[2], 0.0f);
         } else {
@@ -92,7 +92,7 @@ struct BatchLayerRuntime{
         reduction_ones.clear();
     }
 
-    void resize(int batch_size, const int dim[3], bool allocate_activation = true){
+    void resize(int batch_size, const Shape3D &dim, bool allocate_activation = true){
         if(allocate_activation){
             a = BatchTensor(batch_size, dim[0], dim[1], dim[2], 0.0f);
         } else {
@@ -105,12 +105,13 @@ struct BatchLayerRuntime{
 
 class Layer{
     public:
-        int dim_layer[3] = {0, 0, 0};
-        int input_dim[3] = {0, 0, 0};
+        Shape3D dim_layer{};
+        Shape3D input_dim{};
 
         Layer_type type = Layer_type::Dense;
 
-        int kernel_dim[3] = {0, 0, 0};
+        Shape3D kernel_shape{};
+        Shape3D pool_window_shape{};
         int stride[2] = {1, 1};
         int padding[2] = {0, 0};
         Pooling_type pooling_type = Pooling_type::Max;
@@ -122,17 +123,23 @@ class Layer{
         DenseParameters dense_params;
 
         // Parametri separati per i layer convoluzionali:
-        // conv_params.filters[out_channel][kernel_h][kernel_w][in_channel]
+        // conv_params.conv_weights[out_channel][kernel_h][kernel_w][in_channel]
         ConvParameters conv_params;
 
+        void set_dims(const Shape3D &dim){
+            dim_layer = dim;
+        }
+
         void set_dims(const int dim[3]){
-            for(int i=0; i<3; i++)
-                dim_layer[i] = dim[i];
+            set_dims(Shape3D{dim[0], dim[1], dim[2]});
+        }
+
+        void set_input_dims(const Shape3D &dim){
+            input_dim = dim;
         }
 
         void set_input_dims(const int dim[3]){
-            for(int i=0; i<3; i++)
-                input_dim[i] = dim[i];
+            set_input_dims(Shape3D{dim[0], dim[1], dim[2]});
         }
 
         int flat_index(int i, int j, int k) const{
@@ -143,21 +150,26 @@ class Layer{
             return (i * input_dim[1] + j) * input_dim[2] + k;
         }
 
-        int flat_output_size() const{
-            return dim_layer[0] * dim_layer[1] * dim_layer[2];
+        std::size_t flat_output_size() const{
+            return static_cast<std::size_t>(dim_layer[0]) *
+                   static_cast<std::size_t>(dim_layer[1]) *
+                   static_cast<std::size_t>(dim_layer[2]);
         }
 
         std::size_t conv_filter_index(int out_k, int kh, int kw, int in_k) const{
-            return (((static_cast<std::size_t>(out_k) * static_cast<std::size_t>(kernel_dim[0])) +
+            return (((static_cast<std::size_t>(out_k) * static_cast<std::size_t>(kernel_shape[0])) +
                      static_cast<std::size_t>(kh)) *
-                    static_cast<std::size_t>(kernel_dim[1]) +
+                    static_cast<std::size_t>(kernel_shape[1]) +
                     static_cast<std::size_t>(kw)) *
-                   static_cast<std::size_t>(kernel_dim[2]) +
+                   static_cast<std::size_t>(kernel_shape[2]) +
                    static_cast<std::size_t>(in_k);
         }
 
-        int conv_filter_count() const{
-            return dim_layer[2] * kernel_dim[0] * kernel_dim[1] * kernel_dim[2];
+        std::size_t conv_filter_count() const{
+            return static_cast<std::size_t>(dim_layer[2]) *
+                   static_cast<std::size_t>(kernel_shape[0]) *
+                   static_cast<std::size_t>(kernel_shape[1]) *
+                   static_cast<std::size_t>(kernel_shape[2]);
         }
 
         std::size_t dense_weight_index(int out_idx, int in_idx) const{
@@ -173,11 +185,11 @@ class Layer{
         }
 
         float &conv_filter_at(int out_k, int kh, int kw, int in_k){
-            return conv_params.filters[conv_filter_index(out_k, kh, kw, in_k)];
+            return conv_params.conv_weights[conv_filter_index(out_k, kh, kw, in_k)];
         }
 
         const float &conv_filter_at(int out_k, int kh, int kw, int in_k) const{
-            return conv_params.filters[conv_filter_index(out_k, kh, kw, in_k)];
+            return conv_params.conv_weights[conv_filter_index(out_k, kh, kw, in_k)];
         }
 
         void reset_dense_storage(){
@@ -191,14 +203,13 @@ class Layer{
         }
 
         void reset_spatial_config(){
-            kernel_dim[0] = 0;
-            kernel_dim[1] = 0;
-            kernel_dim[2] = 0;
+            kernel_shape = Shape3D{};
+            pool_window_shape = Shape3D{};
             stride[0] = stride[1] = 1;
             padding[0] = padding[1] = 0;
         }
 
-        void init_dense(int dim[3], int p_dim[3]){
+        void init_dense(const Shape3D &dim, const Shape3D &p_dim){
             type = Layer_type::Dense;
 
             static std::random_device rd;
@@ -226,20 +237,27 @@ class Layer{
             }
         }
 
-        void init_input(int dim[3]){
+        void init_dense(int dim[3], int p_dim[3]){
+            init_dense(Shape3D{dim[0], dim[1], dim[2]}, Shape3D{p_dim[0], p_dim[1], p_dim[2]});
+        }
+
+        void init_input(const Shape3D &dim){
             type = Layer_type::Input;
 
             validate_positive_dims(dim, "init_input");
 
             set_dims(dim);
-            const int no_input[3] = {0, 0, 0};
-            set_input_dims(no_input);
+            set_input_dims(Shape3D{});
             reset_dense_storage();
             reset_conv_storage();
             reset_spatial_config();
         }
 
-        void init_conv(int dim[3], int in_dim[3], int kernel[3], int stride_in[2], int padding_in[2]){
+        void init_input(int dim[3]){
+            init_input(Shape3D{dim[0], dim[1], dim[2]});
+        }
+
+        void init_conv(const Shape3D &dim, const Shape3D &in_dim, const Shape3D &kernel, int stride_in[2], int padding_in[2]){
             type = Layer_type::Conv;
 
             static std::random_device rd;
@@ -281,8 +299,7 @@ class Layer{
             reset_conv_storage();
             reset_spatial_config();
 
-            for(int i=0; i<3; i++)
-                kernel_dim[i] = kernel[i];
+            kernel_shape = Shape3D{kernel[0], kernel[1], kernel[2]};
             for(int i=0; i<2; i++){
                 stride[i] = stride_in[i];
                 padding[i] = padding_in[i];
@@ -292,15 +309,25 @@ class Layer{
             const int fan_in = kernel[0] * kernel[1] * kernel[2];
             std::normal_distribution<float> dist(0.0f, std::sqrt(1.0f/static_cast<float>(fan_in)));
 
-            conv_params.filters.assign(static_cast<std::size_t>(conv_filter_count()), 0.0f);
+            conv_params.conv_weights.assign(conv_filter_count(), 0.0f);
             conv_params.bias.resize(out_channels, 0.0f);
 
-            for(std::size_t filter_index = 0; filter_index < conv_params.filters.size(); filter_index++){
-                conv_params.filters[filter_index] = dist(gen);
+            for(std::size_t filter_index = 0; filter_index < conv_params.conv_weights.size(); filter_index++){
+                conv_params.conv_weights[filter_index] = dist(gen);
             }
         }
 
-        void init_pooling(int dim[3], int in_dim[3], int pool_window[3], int stride_in[2], int padding_in[2], Pooling_type pool_type){
+        void init_conv(int dim[3], int in_dim[3], int kernel[3], int stride_in[2], int padding_in[2]){
+            init_conv(
+                Shape3D{dim[0], dim[1], dim[2]},
+                Shape3D{in_dim[0], in_dim[1], in_dim[2]},
+                Shape3D{kernel[0], kernel[1], kernel[2]},
+                stride_in,
+                padding_in
+            );
+        }
+
+        void init_pooling(const Shape3D &dim, const Shape3D &in_dim, const Shape3D &pool_window, int stride_in[2], int padding_in[2], Pooling_type pool_type){
             type = Layer_type::Pooling;
             pooling_type = pool_type;
 
@@ -339,15 +366,25 @@ class Layer{
             reset_conv_storage();
             reset_spatial_config();
 
-            for(int i=0; i<3; i++)
-                kernel_dim[i] = pool_window[i];
+            pool_window_shape = Shape3D{pool_window[0], pool_window[1], pool_window[2]};
             for(int i=0; i<2; i++){
                 stride[i] = stride_in[i];
                 padding[i] = padding_in[i];
             }
         }
 
-        void init_flatten(int dim[3], int in_dim[3]){
+        void init_pooling(int dim[3], int in_dim[3], int pool_window[3], int stride_in[2], int padding_in[2], Pooling_type pool_type){
+            init_pooling(
+                Shape3D{dim[0], dim[1], dim[2]},
+                Shape3D{in_dim[0], in_dim[1], in_dim[2]},
+                Shape3D{pool_window[0], pool_window[1], pool_window[2]},
+                stride_in,
+                padding_in,
+                pool_type
+            );
+        }
+
+        void init_flatten(const Shape3D &dim, const Shape3D &in_dim){
             type = Layer_type::Flatten;
 
             validate_positive_dims(in_dim, "init_flatten input");
@@ -361,7 +398,11 @@ class Layer{
             reset_spatial_config();
         }
 
-        void init_softmax(int dim[3], int in_dim[3]){
+        void init_flatten(int dim[3], int in_dim[3]){
+            init_flatten(Shape3D{dim[0], dim[1], dim[2]}, Shape3D{in_dim[0], in_dim[1], in_dim[2]});
+        }
+
+        void init_softmax(const Shape3D &dim, const Shape3D &in_dim){
             type = Layer_type::Softmax;
 
             validate_positive_dims(dim, "init_softmax output");
@@ -373,6 +414,10 @@ class Layer{
             reset_dense_storage();
             reset_conv_storage();
             reset_spatial_config();
+        }
+
+        void init_softmax(int dim[3], int in_dim[3]){
+            init_softmax(Shape3D{dim[0], dim[1], dim[2]}, Shape3D{in_dim[0], in_dim[1], in_dim[2]});
         }
 
 };
@@ -412,7 +457,7 @@ inline void init_runtime_buffers(const LayerList &architecture, RuntimeList &run
 }
 
 inline void init_batch_layer_runtime(const Layer &layer, BatchLayerRuntime &runtime, int batch_size){
-    const int flat_size = layer.flat_output_size();
+    const std::size_t flat_size = layer.flat_output_size();
     const bool needs_activation = !(layer.type == Layer_type::Input || layer.type == Layer_type::Pooling || layer.type == Layer_type::Flatten);
     const bool shape_changed = (runtime.y.batch_size != batch_size) ||
                                (runtime.y.height != layer.dim_layer[0]) ||
@@ -425,7 +470,7 @@ inline void init_batch_layer_runtime(const Layer &layer, BatchLayerRuntime &runt
     }
 
     if(layer.type == Layer_type::Pooling){
-        const std::size_t required_size = static_cast<std::size_t>(batch_size) * static_cast<std::size_t>(flat_size);
+        const std::size_t required_size = static_cast<std::size_t>(batch_size) * flat_size;
         if(runtime.pooling_argmax.size() != required_size){
             runtime.pooling_argmax.assign(required_size, -1);
         } else {

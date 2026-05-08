@@ -2,10 +2,9 @@
 
 // Questo file contiene l'implementazione delle utility CLI per prompt, selezioni e decay.
 
-#include "shared/network_globals.hpp"
-
 #include <iostream>
 #include <limits>
+#include <memory>
 
 namespace {
 
@@ -53,14 +52,14 @@ void configure_activation_parameters(Activation &activation){
     }
 }
 
-const Decay& decay_from_choice(int choice){
+std::unique_ptr<Decay> decay_from_choice(int choice){
     switch(choice){
-        case 1: return constant_decay;
-        case 2: return exponential_decay;
-        case 3: return time_based_decay;
-        case 4: return step_decay;
-        case 5: return cosine_annealing;
-        default: return constant_decay;
+        case 1: return std::make_unique<Constant_decay>();
+        case 2: return std::make_unique<Exponential_decay>();
+        case 3: return std::make_unique<Time_based_decay>();
+        case 4: return std::make_unique<Step_decay>();
+        case 5: return std::make_unique<Cosine_annealing>();
+        default: return std::make_unique<Constant_decay>();
     }
 }
 
@@ -147,11 +146,12 @@ Activation choose_output_activation(bool final_is_softmax){
     return activation;
 }
 
-const Loss& choose_loss_function(bool final_is_softmax){
+Loss choose_loss_function(bool final_is_softmax){
     if(final_is_softmax){
         std::cout << "Output finale con Softmax: la loss compatibile e' fissata a LL_loss." << std::endl;
-        ll_loss.set_reduction(choose_loss_reduction());
-        return ll_loss;
+        Loss loss{LossKind::LL};
+        loss.set_reduction(choose_loss_reduction());
+        return loss;
     }
 
     std::cout << "Scegliere la funzione di loss:" << std::endl;
@@ -162,52 +162,77 @@ const Loss& choose_loss_function(bool final_is_softmax){
     const Reduction reduction = choose_loss_reduction();
 
     switch(choice){
-        case 1: simple_loss.set_reduction(reduction); return simple_loss;
-        case 2: l1_loss.set_reduction(reduction); return l1_loss;
-        case 3: l2_loss.set_reduction(reduction); return l2_loss;
-        case 4:
-            smooth_l1_loss.set_reduction(reduction);
-            smooth_l1_loss.beta = read_bounded_float(
+        case 1: {
+            Loss loss{LossKind::Simple};
+            loss.set_reduction(reduction);
+            return loss;
+        }
+        case 2: {
+            Loss loss{LossKind::L1};
+            loss.set_reduction(reduction);
+            return loss;
+        }
+        case 3: {
+            Loss loss{LossKind::L2};
+            loss.set_reduction(reduction);
+            return loss;
+        }
+        case 4: {
+            Loss loss{LossKind::SmoothL1};
+            loss.set_reduction(reduction);
+            loss.beta = read_bounded_float(
                 "Scegliere il parametro beta per SmoothL1 (maggiore di 0)",
                 std::numeric_limits<float>::epsilon(),
                 std::numeric_limits<float>::max(),
                 "Inserire un valore maggiore di 0."
             );
-            return smooth_l1_loss;
-        case 5:
-            huber_loss.set_reduction(reduction);
-            huber_loss.beta = read_bounded_float(
+            return loss;
+        }
+        case 5: {
+            Loss loss{LossKind::Huber};
+            loss.set_reduction(reduction);
+            loss.beta = read_bounded_float(
                 "Scegliere il parametro beta per Huber (maggiore di 0)",
                 std::numeric_limits<float>::epsilon(),
                 std::numeric_limits<float>::max(),
                 "Inserire un valore maggiore di 0."
             );
-            return huber_loss;
-        case 6: cross_entropy.set_reduction(reduction); return cross_entropy;
-        default: simple_loss.set_reduction(reduction); return simple_loss;
+            return loss;
+        }
+        case 6: {
+            Loss loss{LossKind::CrossEntropy};
+            loss.set_reduction(reduction);
+            return loss;
+        }
+        default: {
+            Loss loss{LossKind::Simple};
+            loss.set_reduction(reduction);
+            return loss;
+        }
     }
 }
 
 // Selezione della strategia di decay
 
-const Decay& choose_learning_rate_decay(float initial_lr, int num_epochs){
+std::unique_ptr<Decay> choose_learning_rate_decay(float initial_lr, int num_epochs){
     std::cout << "Scegliere la strategia di decay del learning rate:" << std::endl;
     std::cout << "1=None 2=Exponential 3=Time-based 4=Step 5=Cosine annealing" << std::endl;
     const int choice = read_bounded_int("", 1, 5);
-    Decay &selected_decay = const_cast<Decay&>(decay_from_choice(choice));
-    selected_decay.set_initial_lr(initial_lr);
+    std::unique_ptr<Decay> selected_decay = decay_from_choice(choice);
+    Decay &decay = *selected_decay;
+    decay.set_initial_lr(initial_lr);
 
     switch(choice){
         case 1:
             break;
         case 2: {
             const float decay_rate = read_bounded_float("Scegliere il decay rate esponenziale (maggiore o uguale a 0)", 0.0f);
-            exponential_decay.set_decay_rate(decay_rate);
+            static_cast<Exponential_decay &>(decay).set_decay_rate(decay_rate);
             break;
         }
         case 3: {
             const float decay_rate = read_bounded_float("Scegliere il decay rate time-based (maggiore o uguale a 0)", 0.0f);
-            time_based_decay.set_decay_rate(decay_rate);
+            static_cast<Time_based_decay &>(decay).set_decay_rate(decay_rate);
             break;
         }
         case 4: {
@@ -218,14 +243,14 @@ const Decay& choose_learning_rate_decay(float initial_lr, int num_epochs){
                 "Inserire un valore maggiore di 0."
             );
             const int step_size = read_bounded_int("Scegliere lo step size del decay (almeno 1 epoca)", 1);
-            step_decay.set_decay_rate(decay_rate);
-            step_decay.set_step_size(step_size);
+            static_cast<Step_decay &>(decay).set_decay_rate(decay_rate);
+            static_cast<Step_decay &>(decay).set_step_size(step_size);
             break;
         }
         case 5: {
             const float final_lr = read_bounded_float("Scegliere il learning rate finale del cosine annealing (maggiore o uguale a 0)", 0.0f);
-            cosine_annealing.set_final_lr(final_lr);
-            cosine_annealing.set_max_epoch(num_epochs);
+            static_cast<Cosine_annealing &>(decay).set_final_lr(final_lr);
+            static_cast<Cosine_annealing &>(decay).set_max_epoch(num_epochs);
             break;
         }
         default:

@@ -18,12 +18,13 @@
 using cuda_backend::CudaParameterBuffer;
 
 void optimizer_step(
-    LayerList &architecture, int num_layers,
+    const LayerList &architecture,
     const CudaParameterBuffer &gradients, CudaParameterBuffer &velocity, CudaParameterBuffer &cuda_params,
     float learning_rate, float momentum
 ){
+    const int num_layers = static_cast<int>(architecture.size());
     for(int l=1; l<num_layers; l++){
-        Layer &current = architecture[l];
+        const Layer &current = architecture[l];
         switch(current.type){
             case Layer_type::Dense: {
                 float *weight_data = cuda_params.dense_weights[l].data();
@@ -85,11 +86,12 @@ void optimizer_step(
 }
 
 void accumulate_scaled_gradients(
-    const LayerList &architecture, int num_layers,
+    const LayerList &architecture,
     CudaParameterBuffer &accumulated,
     const CudaParameterBuffer &chunk,
     float scale
 ){
+    const int num_layers = static_cast<int>(architecture.size());
     for(int l=1; l<num_layers; l++){
         const Layer &current = architecture[l];
         switch(current.type){

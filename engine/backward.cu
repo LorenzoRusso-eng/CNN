@@ -80,9 +80,9 @@ void build_cost_from_next_conv_all_batch(
     const int out_features = next.dim_layer[0] * next.dim_layer[1];
     const int total_out_size = batch_size * out_features;
 
-    const int kernel_height = next.kernel_dim[0];
-    const int kernel_width = next.kernel_dim[1];
-    const int channels = next.kernel_dim[2];
+    const int kernel_height = next.kernel_shape[0];
+    const int kernel_width = next.kernel_shape[1];
+    const int channels = next.kernel_shape[2];
 
     const int padding_height = next.padding[0];
     const int padding_width = next.padding[1];
@@ -167,8 +167,8 @@ void build_cost_from_next_pool_all_batch(
     const int next_width = next.dim_layer[1];
     const int next_total_size = static_cast<int>(next_runtime.delta.size());
     
-    const int kernel_height = next.kernel_dim[0];
-    const int kernel_width = next.kernel_dim[1];
+    const int kernel_height = next.pool_window_shape[0];
+    const int kernel_width = next.pool_window_shape[1];
 
     const int stride_height = next.stride[0];
     const int stride_width = next.stride[1];
@@ -233,7 +233,7 @@ void build_cost_from_next_pool_all_batch(
 
 void build_cost_from_next_layer_all_batch(
     CudaBatchLayerRuntime &current_runtime,
-    const Layer &next, const CudaBatchLayerRuntime &next_runtime, const CudaParameterBuffer &cuda_params, int next_layer_index,
+    const Layer &next, CudaBatchLayerRuntime &next_runtime, const CudaParameterBuffer &cuda_params, int next_layer_index,
     const CudaParameterBuffer *velocity, float momentum,
     cuda_backend::CudaBatchTensor<float> &out_cost
 ){

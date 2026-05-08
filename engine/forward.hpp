@@ -27,7 +27,6 @@ void fill_target_batch(
 void forwardprop_batch(
     const LayerList &architecture,
     cuda_backend::CudaBatchRuntimeList &runtime,
-    int num_layers,
     const cuda_backend::CudaParameterBuffer &cuda_params,
     const Activation &hidden_activation,
     const Activation &output_activation,

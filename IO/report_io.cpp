@@ -1,4 +1,4 @@
-﻿#include "IO/report_io.hpp"
+#include "IO/report_io.hpp"
 
 // Questo file contiene la serializzazione del report performance in formato Markdown.
 
@@ -18,7 +18,7 @@ namespace{
         return value ? "Yes" : "No";
     }
 
-    std::string format_dim(const int dim[3]){
+    std::string format_dim(const Shape3D &dim){
         return std::to_string(dim[0]) + "x" + std::to_string(dim[1]) + "x" + std::to_string(dim[2]);
     }
 
@@ -29,13 +29,13 @@ namespace{
                        ", out=" + std::to_string(layer.dense_output_size) +
                        ", params=" + std::to_string(layer.dense_params.weights.size() + layer.dense_params.bias.size());
             case Layer_type::Conv:
-                return "kernel=" + format_dim(layer.kernel_dim) +
+                return "kernel=" + format_dim(layer.kernel_shape) +
                        ", stride=" + std::to_string(layer.stride[0]) + "x" + std::to_string(layer.stride[1]) +
                        ", padding=" + std::to_string(layer.padding[0]) + "x" + std::to_string(layer.padding[1]) +
-                       ", params=" + std::to_string(layer.conv_params.filters.size() + layer.conv_params.bias.size());
+                       ", params=" + std::to_string(layer.conv_params.conv_weights.size() + layer.conv_params.bias.size());
             case Layer_type::Pooling:
                 return "type=" + layer_text::pooling_type_to_string(layer.pooling_type) +
-                       ", kernel=" + format_dim(layer.kernel_dim) +
+                       ", window=" + format_dim(layer.pool_window_shape) +
                        ", stride=" + std::to_string(layer.stride[0]) + "x" + std::to_string(layer.stride[1]) +
                        ", padding=" + std::to_string(layer.padding[0]) + "x" + std::to_string(layer.padding[1]);
             case Layer_type::Input:
@@ -84,7 +84,8 @@ namespace{
         out << std::endl;
     }
 
-    void write_network_config_table(std::ostream &out, const LayerList &architecture, int num_layers){
+    void write_network_config_table(std::ostream &out, const LayerList &architecture){
+        const int num_layers = static_cast<int>(architecture.size());
         out << "## Network Configuration" << std::endl;
         out << "| Layer | Type | Input Dim | Output Dim | Details |" << std::endl;
         out << "|---:|---|---|---|---|" << std::endl;
@@ -268,7 +269,7 @@ namespace{
     }
 }
 
-void write_performance_report_hold_out(const std::filesystem::path &file_path, const ReportMetadata &meta, const TrainingSummary &training_summary, const TestPerformance &perf, const LayerList &architecture, int num_layers, int train_examples, int validation_examples, int test_examples){
+void write_performance_report_hold_out(const std::filesystem::path &file_path, const ReportMetadata &meta, const TrainingSummary &training_summary, const TestPerformance &perf, const LayerList &architecture, int train_examples, int validation_examples, int test_examples){
     std::ofstream out(file_path);
     if(!out.good()){
         throw std::runtime_error("Impossibile creare il file performance: " + file_path.string());
@@ -278,7 +279,7 @@ void write_performance_report_hold_out(const std::filesystem::path &file_path, c
 
     write_report_title(out, meta);
     write_general_info_hold_out(out, meta, train_examples, validation_examples, test_examples);
-    write_network_config_table(out, architecture, num_layers);
+    write_network_config_table(out, architecture);
     write_training_config_table(out, meta);
     write_training_results_table(out, training_summary);
     write_test_results_table(out, perf);
@@ -287,7 +288,7 @@ void write_performance_report_hold_out(const std::filesystem::path &file_path, c
     write_aggregate_metrics_table(out, perf);
 }
 
-void write_performance_report_k_fold(const std::filesystem::path &file_path, const ReportMetadata &meta, const std::vector<TrainingSummary> &training_summaries, const std::vector<TestPerformance> &performances, const std::vector<int> &train_examples_by_fold, const std::vector<int> &validation_examples_by_fold, const LayerList &architecture, int num_layers){
+void write_performance_report_k_fold(const std::filesystem::path &file_path, const ReportMetadata &meta, const std::vector<TrainingSummary> &training_summaries, const std::vector<TestPerformance> &performances, const std::vector<int> &train_examples_by_fold, const std::vector<int> &validation_examples_by_fold, const LayerList &architecture){
     std::ofstream out(file_path);
     if(!out.good()){
         throw std::runtime_error("Impossibile creare il file performance: " + file_path.string());
@@ -299,7 +300,7 @@ void write_performance_report_k_fold(const std::filesystem::path &file_path, con
 
     write_report_title(out, meta);
     write_general_info_k_fold(out, meta);
-    write_network_config_table(out, architecture, num_layers);
+    write_network_config_table(out, architecture);
     write_training_config_table(out, meta);
 
     for(int k = 0; k < meta.k_folds; k++){

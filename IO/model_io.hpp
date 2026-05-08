@@ -11,4 +11,4 @@
 #include "math/activations.hpp"
 
 void load_model_snapshot(const std::filesystem::path &snapshot_path, LayerList &architecture, std::vector<std::string> &class_names, std::string &hidden_activation_name, std::string &output_activation_name);
-void save_model_snapshot(const LayerList &architecture, int num_layers, const std::filesystem::path &file_path, const std::vector<std::string> &class_names, const Activation &hidden_activation, const Activation &output_activation);
+void save_model_snapshot(const LayerList &architecture, const std::filesystem::path &file_path, const std::vector<std::string> &class_names, const Activation &hidden_activation, const Activation &output_activation);

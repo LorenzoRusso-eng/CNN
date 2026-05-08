@@ -36,7 +36,7 @@ public:
     void copy_from_device(const CudaBatchTensor<T> &src);
     void copy_data_from_device(const CudaBatchTensor<T> &src);
     void copy_to_host(T *dst, std::size_t count) const;
-    void alias_from(const CudaBatchTensor<T> &src, int batch_size, int h, int w, int ch);
+    void alias_from(CudaBatchTensor<T> &src, int batch_size, int h, int w, int ch);
 
     T *data() noexcept { return ptr_; }
     const T *data() const noexcept { return ptr_; }
@@ -91,7 +91,7 @@ struct CudaBatchLayerRuntime {
     CudaBatchTensor<float> loss_sum;
     CudaBatchTensor<int> loss_reduce_temp;
     int batch_size = 0;
-    int flat_size = 0;
+    std::size_t flat_size = 0;
 
     void clear();
 };

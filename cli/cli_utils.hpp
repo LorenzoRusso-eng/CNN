@@ -3,6 +3,7 @@
 // Questo file contiene le utility CLI per input validato e selezione di opzioni di training.
 
 #include <limits>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -19,5 +20,5 @@ int choose_training_type();
 int choose_training_method();
 Activation choose_hidden_activation();
 Activation choose_output_activation(bool final_is_softmax);
-const Loss& choose_loss_function(bool final_is_softmax);
-const Decay& choose_learning_rate_decay(float initial_lr, int num_epochs);
+Loss choose_loss_function(bool final_is_softmax);
+std::unique_ptr<Decay> choose_learning_rate_decay(float initial_lr, int num_epochs);

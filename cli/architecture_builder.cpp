@@ -7,11 +7,11 @@
 #include <iostream>
 #include <stdexcept>
 
-void create_architecture(int &num_layers, int input_shape[3], int num_classes, LayerList &architecture){
+void create_architecture(const Shape3D &input_shape, int num_classes, LayerList &architecture){
     int i;
     std::cout << "Il layer di input ha dimensioni " << input_shape[0] << "x" << input_shape[1] << "x" << input_shape[2] << std::endl;
     std::cout << "Il layer di output ha dimensione " << num_classes << std::endl;
-    num_layers = read_bounded_int("Scegliere il numero di layer dell'architettura (almeno 2 - il primo layer è di input e preinpostato)", 2);
+    int num_layers = read_bounded_int("Scegliere il numero di layer dell'architettura (almeno 2 - il primo layer è di input e preinpostato)", 2);
 
     const bool use_softmax = (num_classes > 1) && read_bounded_int("Aggiungere un layer Softmax finale? (0 = no, 1 = sì)", 0, 1);
     if(use_softmax){
@@ -37,10 +37,10 @@ void create_architecture(int &num_layers, int input_shape[3], int num_classes, L
                     throw std::invalid_argument("Non e' possibile aggiungere un layer Conv dopo un Flatten");
                 }
 
-                int kernel[3] = {0, 0, previous.dim_layer[2]};
+                Shape3D kernel{0, 0, previous.dim_layer[2]};
                 int stride[2] = {1, 1};
                 int padding[2] = {0, 0};
-                int out_dim[3] = {0, 0, 0};
+                Shape3D out_dim{};
 
                 kernel[0] = read_bounded_int("Altezza kernel convoluzionale", 1);
                 kernel[1] = read_bounded_int("Larghezza kernel convoluzionale", 1);
@@ -62,10 +62,10 @@ void create_architecture(int &num_layers, int input_shape[3], int num_classes, L
                     throw std::invalid_argument("Non e' possibile aggiungere un layer Pooling dopo un Flatten");
                 }
 
-                int pool_window[3] = {0, 0, previous.dim_layer[2]};
+                Shape3D pool_window{0, 0, previous.dim_layer[2]};
                 int stride[2] = {1, 1};
                 int padding[2] = {0, 0};
-                int out_dim[3] = {0, 0, previous.dim_layer[2]};
+                Shape3D out_dim{0, 0, previous.dim_layer[2]};
                 const Pooling_type pooling_type = read_pooling_type();
 
                 pool_window[0] = read_bounded_int("Altezza finestra di pooling", 1);
@@ -108,7 +108,7 @@ void create_architecture(int &num_layers, int input_shape[3], int num_classes, L
                     throw std::invalid_argument("Non e' possibile applicare Flatten due volte di fila");
                 }
 
-                int out_dim[3] = {
+                Shape3D out_dim{
                     previous.dim_layer[0] * previous.dim_layer[1] * previous.dim_layer[2],
                     1,
                     1
@@ -119,7 +119,7 @@ void create_architecture(int &num_layers, int input_shape[3], int num_classes, L
             }
 
             case 4: {
-                int out_dim[3] = {0, 1, 1};
+                Shape3D out_dim{0, 1, 1};
                 out_dim[0] = read_bounded_int("Numero di neuroni del layer Dense", 1);
                 architecture[i].init_dense(out_dim, architecture[i - 1].dim_layer);
                 break;

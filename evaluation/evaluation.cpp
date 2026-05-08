@@ -17,11 +17,12 @@ constexpr int kEvaluationBatchSize = 100;
 } // namespace
 
 
-TestPerformance run_test(LayerList &architecture, int num_layers, const cuda_backend::CudaParameterBuffer &parameters, const std::vector<int> &test_indices, const LazyDataset &dataset, const Activation &hidden_activation, const Activation &output_activation)
+TestPerformance run_test(LayerList &architecture, const cuda_backend::CudaParameterBuffer &parameters, const std::vector<int> &test_indices, const LazyDataset &dataset, const Activation &hidden_activation, const Activation &output_activation)
 {
     TestPerformance perf;
-    validate_architecture(architecture, num_layers, "run_test");
-    validate_dataset_indices_io_shapes(architecture, num_layers, dataset, test_indices, "run_test");
+    validate_architecture(architecture, "run_test");
+    validate_dataset_indices_io_shapes(architecture, dataset, test_indices, "run_test");
+    const int num_layers = static_cast<int>(architecture.size());
     const int test_count = static_cast<int>(test_indices.size());
     if (test_indices.empty())
     {
@@ -45,7 +46,7 @@ TestPerformance run_test(LayerList &architecture, int num_layers, const cuda_bac
 
         cuda_backend::init_cuda_forward_batch_runtime_buffers(architecture, runtime, batch_size);
         feed_input_batch(dataset, test_indices, start, end, architecture[0], runtime[0]);
-        forwardprop_batch(architecture, runtime, num_layers, parameters, hidden_activation, output_activation);
+        forwardprop_batch(architecture, runtime, parameters, hidden_activation, output_activation);
 
         predicted_output.resize(static_cast<std::size_t>(batch_size) * static_cast<std::size_t>(flat_size));
         runtime[num_layers - 1].y.copy_to_host(predicted_output.data(), predicted_output.size());
@@ -103,10 +104,11 @@ TestPerformance run_test(LayerList &architecture, int num_layers, const cuda_bac
     return perf;
 }
 
-float run_validation_accuracy(LayerList &architecture, int num_layers, const cuda_backend::CudaParameterBuffer &parameters, cuda_backend::CudaBatchRuntimeList &runtime, const std::vector<int> &validation_indices, const LazyDataset &dataset, const Activation &hidden_activation, const Activation &output_activation, int batch_size)
+float run_validation_accuracy(LayerList &architecture, const cuda_backend::CudaParameterBuffer &parameters, cuda_backend::CudaBatchRuntimeList &runtime, const std::vector<int> &validation_indices, const LazyDataset &dataset, const Activation &hidden_activation, const Activation &output_activation, int batch_size)
 {
-    validate_architecture(architecture, num_layers, "run_validation_accuracy");
-    validate_dataset_indices_io_shapes(architecture, num_layers, dataset, validation_indices, "run_validation_accuracy");
+    validate_architecture(architecture, "run_validation_accuracy");
+    validate_dataset_indices_io_shapes(architecture, dataset, validation_indices, "run_validation_accuracy");
+    const int num_layers = static_cast<int>(architecture.size());
     const int validation_count = static_cast<int>(validation_indices.size());
     if(validation_count == 0){
         return 0.0f;
@@ -123,7 +125,7 @@ float run_validation_accuracy(LayerList &architecture, int num_layers, const cud
 
         cuda_backend::init_cuda_forward_batch_runtime_buffers(architecture, runtime, current_batch_size);
         feed_input_batch(dataset, validation_indices, start, end, architecture[0], runtime[0]);
-        forwardprop_batch(architecture, runtime, num_layers, parameters, hidden_activation, output_activation);
+        forwardprop_batch(architecture, runtime, parameters, hidden_activation, output_activation);
 
         predicted_output.resize(static_cast<std::size_t>(current_batch_size) * static_cast<std::size_t>(flat_size));
         runtime[num_layers - 1].y.copy_to_host(predicted_output.data(), predicted_output.size());
