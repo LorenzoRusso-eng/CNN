@@ -1,8 +1,5 @@
 #include "kernels/general.hpp"
 
-#include "math/activation_cuda.hpp"
-#include "math/loss_cuda.hpp"
-
 #include <algorithm>
 #include <cmath>
 #include <cstddef>

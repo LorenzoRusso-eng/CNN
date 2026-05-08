@@ -3,7 +3,7 @@
 #include "core/cuda_backend.hpp"
 #include "engine/forward.hpp"
 #include "engine/gradients.hpp"
-#include "math/loss_cuda.hpp"
+#include "math/losses.hpp"
 
 namespace training_batches {
 

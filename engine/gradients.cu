@@ -2,7 +2,7 @@
 #include "engine/gradients.hpp"
 #include "engine/backward.hpp"
 #include "core/cuda_backend.hpp"
-#include "math/loss_cuda.hpp"
+#include "math/losses.hpp"
 #include "kernels/general.hpp"
 #include "kernels/pooling.hpp"
 #include "kernels/im2col.hpp"

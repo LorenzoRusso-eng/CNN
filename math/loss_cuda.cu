@@ -1,5 +1,6 @@
-#include "math/loss_cuda.hpp"
+#include "math/losses.hpp"
 
+#include "core/cuda_backend.hpp"
 #include "kernels/general.hpp"
 
 #include <cstddef>

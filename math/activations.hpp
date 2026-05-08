@@ -1,8 +1,13 @@
 #pragma once
-// Questo file contiene le funzioni di attivazione senza dispatch virtuale.
+
+#include "core/core_definitions.hpp"
 
 #include <cmath>
-#include "core/core_definitions.hpp"
+
+#ifdef __CUDACC__
+#include <cuda_runtime.h>
+#include <math_constants.h>
+#endif
 
 inline float stable_sigmoid(float a) {
     if(a >= 0.0f) {
@@ -40,72 +45,6 @@ struct Activation {
     float alpha = 1.0f;
     float beta = 1.0f;
 
-    float fn(float a) const {
-        switch(kind){
-            case ActivationKind::Identity:
-                return a;
-            case ActivationKind::Sigmoid:
-                return stable_sigmoid(a);
-            case ActivationKind::Tanh:
-                return std::tanh(a);
-            case ActivationKind::ReLU:
-                return (a > 0.0f) ? a : 0.0f;
-            case ActivationKind::LeakyReLU:
-                return (a > 0.0f) ? a : 0.01f * a;
-            case ActivationKind::ELU:
-                return (a > 0.0f) ? a : alpha * (std::exp(a) - 1.0f);
-            case ActivationKind::Softplus:
-                return stable_softplus(a);
-            case ActivationKind::Swish:
-                return a * stable_sigmoid(beta * a);
-            case ActivationKind::Mish:
-                return a * std::tanh(stable_softplus(a));
-            case ActivationKind::GELU:
-                return 0.5f * a * (1.0f + std::erf(a / std::sqrt(2.0f)));
-        }
-        return a;
-    }
-
-    float der(float a) const {
-        switch(kind){
-            case ActivationKind::Identity:
-                (void)a;
-                return 1.0f;
-            case ActivationKind::Sigmoid: {
-                const float s = stable_sigmoid(a);
-                return s * (1.0f - s);
-            }
-            case ActivationKind::Tanh: {
-                const float t = std::tanh(a);
-                return 1.0f - t * t;
-            }
-            case ActivationKind::ReLU:
-                return (a > 0.0f) ? 1.0f : 0.0f;
-            case ActivationKind::LeakyReLU:
-                return (a > 0.0f) ? 1.0f : 0.01f;
-            case ActivationKind::ELU:
-                return (a > 0.0f) ? 1.0f : alpha * std::exp(a);
-            case ActivationKind::Softplus:
-                return stable_sigmoid(a);
-            case ActivationKind::Swish: {
-                const float sigmoid_value = stable_sigmoid(beta * a);
-                const float swish_value = a * sigmoid_value;
-                return beta * swish_value + sigmoid_value * (1.0f - beta * swish_value);
-            }
-            case ActivationKind::Mish: {
-                const float softplus_value = stable_softplus(a);
-                const float tanh_softplus = std::tanh(softplus_value);
-                const float sigmoid_value = stable_sigmoid(a);
-                const float sech2_softplus = 1.0f - tanh_softplus * tanh_softplus;
-                return tanh_softplus + a * sigmoid_value * sech2_softplus;
-            }
-            case ActivationKind::GELU:
-                return 0.5f * (1.0f + std::erf(a / std::sqrt(2.0f)))
-                     + (a / std::sqrt(2.0f * PI_F)) * std::exp(-0.5f * a * a);
-        }
-        return 1.0f;
-    }
-
     bool outputs_in_unit_interval() const {
         return kind == ActivationKind::Sigmoid;
     }
@@ -136,6 +75,92 @@ inline const char *activation_name(const Activation &activation){
     }
     return "Identity";
 }
+
+#ifdef __CUDACC__
+__device__ inline float cuda_stable_sigmoid(float x){
+    if(x >= 0.0f){
+        float z = expf(-x);
+        return 1.0f / (1.0f + z);
+    } else {
+        float z = expf(x);
+        return z / (1.0f + z);
+    }
+}
+
+__device__ inline float cuda_stable_softplus(float x){
+    if(x > 0.0f){
+        return x + log1pf(expf(-x));
+    }
+    return log1pf(expf(x));
+}
+
+__device__ inline float cuda_apply_activation(float x, ActivationKind kind, float alpha = 0.0f, float beta = 0.0f){
+    switch(kind){
+        case ActivationKind::Identity:
+            return x;
+        case ActivationKind::Sigmoid:
+            return cuda_stable_sigmoid(x);
+        case ActivationKind::Tanh:
+            return tanhf(x);
+        case ActivationKind::ReLU:
+            return x > 0.0f ? x : 0.0f;
+        case ActivationKind::LeakyReLU:
+            return x > 0.0f ? x : 0.01f * x;
+        case ActivationKind::ELU:
+            return x > 0.0f ? x : alpha * (expf(x) - 1.0f);
+        case ActivationKind::Softplus:
+            return cuda_stable_softplus(x);
+        case ActivationKind::Swish:
+            return x * cuda_stable_sigmoid(beta * x);
+        case ActivationKind::Mish:
+            return x * tanhf(cuda_stable_softplus(x));
+        case ActivationKind::GELU:
+            return 0.5f * x * (1.0f + erff(x / sqrtf(2.0f)));
+        default:
+            return x;
+    }
+}
+
+__device__ inline float cuda_apply_activation_derivative(float x, ActivationKind kind, float alpha = 0.0f, float beta = 0.0f){
+    switch(kind){
+        case ActivationKind::Identity:
+            return 1.0f;
+        case ActivationKind::Sigmoid: {
+            const float sigmoid_value = cuda_stable_sigmoid(x);
+            return sigmoid_value * (1.0f - sigmoid_value);
+        }
+        case ActivationKind::Tanh: {
+            const float tanh_value = tanhf(x);
+            return 1.0f - tanh_value * tanh_value;
+        }
+        case ActivationKind::ReLU:
+            return x > 0.0f ? 1.0f : 0.0f;
+        case ActivationKind::LeakyReLU:
+            return x > 0.0f ? 1.0f : 0.01f;
+        case ActivationKind::ELU:
+            return x > 0.0f ? 1.0f : alpha * expf(x);
+        case ActivationKind::Softplus:
+            return cuda_stable_sigmoid(x);
+        case ActivationKind::Swish: {
+            const float sigmoid_value = cuda_stable_sigmoid(beta * x);
+            const float swish_value = x * sigmoid_value;
+            return beta * swish_value + sigmoid_value * (1.0f - beta * swish_value);
+        }
+        case ActivationKind::Mish: {
+            const float softplus_value = cuda_stable_softplus(x);
+            const float tanh_softplus = tanhf(softplus_value);
+            const float sigmoid_value = cuda_stable_sigmoid(x);
+            const float sech2_softplus = 1.0f - tanh_softplus * tanh_softplus;
+            return tanh_softplus + x * sigmoid_value * sech2_softplus;
+        }
+        case ActivationKind::GELU:
+            return 0.5f * (1.0f + erff(x / sqrtf(2.0f)))
+                 + (x / sqrtf(2.0f * PI_F)) * expf(-0.5f * x * x);
+        default:
+            return 1.0f;
+    }
+}
+#endif
 
 extern Activation identity;
 extern Activation sigmoid;
